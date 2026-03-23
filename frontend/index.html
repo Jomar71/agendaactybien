@@ -1,0 +1,24 @@
+cat > frontend/index.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NailArt Studio</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial; text-align: center; padding: 50px; background: #F9F0F0; color: #2C2C2C; }
+        h1 { color: #D4AF37; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
+        button { background: #D4AF37; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💅 NailArt Studio</h1>
+        <p>Bienvenida a tu spa de uñas de confianza.</p>
+        <p>El sistema está en construcción. Pronto podrás agendar tu cita.</p>
+        <button onclick="alert('Próximamente disponible')">Agendar Cita</button>
+    </div>
+</body>
+</html>
+EOF
