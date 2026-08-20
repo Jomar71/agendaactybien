@@ -762,11 +762,10 @@ function renderAppointment(el) {
           <div class="steps" id="steps" role="list">
             ${[
               ['1', 'Profesional'],
-              ['2', 'Fecha'],
-              ['3', 'Hora'],
-              ['4', 'Datos'],
-              ['5', 'Motivo'],
-              ['6', 'Confirmación']
+              ['2', 'Fecha & Hora'],
+              ['3', 'Datos'],
+              ['4', 'Motivo'],
+              ['5', 'Confirmación']
             ].map(([num, label], i, arr) => `
               <div class="step${i === 0 ? ' active' : ''}" data-step="${num}" role="listitem"
                    aria-current="${i === 0 ? 'step' : 'false'}" aria-label="Paso ${num}: ${label}">
@@ -890,55 +889,15 @@ function renderAppointmentStep2() {
   const days = getNextWorkDays(45);
   const prof = getProfessional(appointmentForm.professionalId);
 
-  el.innerHTML = `
-    <div class="form-card">
-      <h2>2. Elige una Fecha</h2>
-      <p class="form-subtitle">Profesional: <strong style="color:var(--teal)">${escapeHtml(prof.nombre)}</strong></p>
-      <div class="date-grid" id="date-grid" role="listbox" aria-label="Fechas hábiles disponibles">
-        ${days.map(d => {
-          const dStr = d.toISOString().split('T')[0];
-          const selected = appointmentForm.date === dStr;
-          return `
-            <button class="date-btn ${selected ? 'selected' : ''}" data-date="${dStr}"
-                    role="option" aria-selected="${selected}"
-                    aria-label="${formatDate(d)}">
-              ${formatDateShort(d)}
-            </button>`;
-        }).join('')}
-      </div>
-      <div class="form-nav">
-        <button class="btn btn-secondary" id="btn-step-prev">← Anterior</button>
-        <button class="btn btn-primary" id="btn-step-next" ${!appointmentForm.date ? 'disabled' : ''}>Siguiente: Hora →</button>
-      </div>
-    </div>
-  `;
-
-  el.querySelectorAll('.date-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      el.querySelectorAll('.date-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
-      btn.classList.add('selected');
-      btn.setAttribute('aria-selected', 'true');
-      appointmentForm.date = btn.dataset.date;
-      document.getElementById('btn-step-next').disabled = false;
-    });
-  });
-
-  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep1);
-  document.getElementById('btn-step-next').addEventListener('click', () => {
-    if (appointmentForm.date) renderAppointmentStep3();
-  });
-}
-
-function renderAppointmentStep3() {
-  const el = document.getElementById('form-step-content');
-  if (!el) return;
-  updateSteps(3);
-  const booked = getBookedSlots(appointmentForm.date);
-
-  el.innerHTML = `
-    <div class="form-card">
-      <h2>3. Elige una Hora</h2>
-      <p class="form-subtitle">Día: <strong style="color:var(--teal)">${formatDate(appointmentForm.date)}</strong></p>
+  const renderTimeSlots = (dateStr) => {
+    const booked = getBookedSlots(dateStr);
+    const timePanel = document.getElementById('time-panel');
+    if (!timePanel) return;
+    if (!dateStr) {
+      timePanel.innerHTML = `<p class="time-placeholder">👆 Selecciona una fecha para ver los horarios disponibles</p>`;
+      return;
+    }
+    timePanel.innerHTML = `
       <div class="time-grid" id="time-grid" role="listbox" aria-label="Horarios disponibles">
         ${TIME_SLOTS.map(t => {
           const isBooked = booked.includes(t);
@@ -951,38 +910,87 @@ function renderAppointmentStep3() {
               ${t}${isBooked ? ' ⛔' : ''}
             </button>`;
         }).join('')}
+      </div>`;
+
+    timePanel.querySelectorAll('.time-btn:not(:disabled)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        timePanel.querySelectorAll('.time-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
+        btn.classList.add('selected');
+        btn.setAttribute('aria-selected', 'true');
+        appointmentForm.time = btn.dataset.time;
+        document.getElementById('btn-step-next').disabled = false;
+      });
+    });
+  };
+
+  el.innerHTML = `
+    <div class="form-card">
+      <h2>2. Elige Fecha y Hora</h2>
+      <p class="form-subtitle">Profesional: <strong style="color:var(--teal)">${escapeHtml(prof.nombre)}</strong></p>
+
+      <div class="datetime-layout">
+        <!-- Panel izquierdo: Fechas -->
+        <div class="datetime-col">
+          <h3 class="datetime-col-title">📅 Fecha</h3>
+          <div class="date-grid" id="date-grid" role="listbox" aria-label="Fechas hábiles disponibles">
+            ${days.map(d => {
+              const dStr = d.toISOString().split('T')[0];
+              const selected = appointmentForm.date === dStr;
+              return `
+                <button class="date-btn ${selected ? 'selected' : ''}" data-date="${dStr}"
+                        role="option" aria-selected="${selected}"
+                        aria-label="${formatDate(d)}">
+                  ${formatDateShort(d)}
+                </button>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Panel derecho: Horas -->
+        <div class="datetime-col">
+          <h3 class="datetime-col-title">🕐 Hora</h3>
+          <div id="time-panel" class="time-panel">
+            <p class="time-placeholder">👆 Selecciona una fecha para ver los horarios disponibles</p>
+          </div>
+        </div>
       </div>
+
       <div class="form-nav">
         <button class="btn btn-secondary" id="btn-step-prev">← Anterior</button>
-        <button class="btn btn-primary" id="btn-step-next" ${!appointmentForm.time ? 'disabled' : ''}>Siguiente: Datos →</button>
+        <button class="btn btn-primary" id="btn-step-next" ${(!appointmentForm.date || !appointmentForm.time) ? 'disabled' : ''}>Siguiente: Datos →</button>
       </div>
     </div>
   `;
 
-  el.querySelectorAll('.time-btn:not(:disabled)').forEach(btn => {
+  // Si ya hay fecha seleccionada, renderizar horas inmediatamente
+  if (appointmentForm.date) renderTimeSlots(appointmentForm.date);
+
+  el.querySelectorAll('.date-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      el.querySelectorAll('.time-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
+      el.querySelectorAll('.date-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
       btn.classList.add('selected');
       btn.setAttribute('aria-selected', 'true');
-      appointmentForm.time = btn.dataset.time;
-      document.getElementById('btn-step-next').disabled = false;
+      appointmentForm.date = btn.dataset.date;
+      appointmentForm.time = null; // resetear hora al cambiar fecha
+      document.getElementById('btn-step-next').disabled = true;
+      renderTimeSlots(appointmentForm.date);
     });
   });
 
-  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep2);
+  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep1);
   document.getElementById('btn-step-next').addEventListener('click', () => {
-    if (appointmentForm.time) renderAppointmentStep4();
+    if (appointmentForm.date && appointmentForm.time) renderAppointmentStep3();
   });
 }
 
-function renderAppointmentStep4() {
+function renderAppointmentStep3() {
   const el = document.getElementById('form-step-content');
   if (!el) return;
-  updateSteps(4);
+  updateSteps(3);
 
   el.innerHTML = `
     <div class="form-card">
-      <h2>4. Datos del Tutor y Paciente</h2>
+      <h2>3. Datos del Tutor y Paciente</h2>
       <p class="form-subtitle">Los datos de contacto se guardarán automáticamente en <strong>Mi Directorio</strong></p>
 
       <fieldset style="border:none;margin-bottom:20px;padding:0">
@@ -1072,7 +1080,7 @@ function renderAppointmentStep4() {
     inp.focus();
   }
 
-  function validateStep4() {
+  function validateStep3() {
     let valid = true;
     const f = appointmentForm;
 
@@ -1087,21 +1095,21 @@ function renderAppointmentStep4() {
     return valid;
   }
 
-  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep3);
+  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep2);
   document.getElementById('btn-step-next').addEventListener('click', () => {
-    if (validateStep4()) renderAppointmentStep5();
+    if (validateStep3()) renderAppointmentStep4();
   });
 }
 
-function renderAppointmentStep5() {
+function renderAppointmentStep4() {
   const el = document.getElementById('form-step-content');
   if (!el) return;
-  updateSteps(5);
+  updateSteps(4);
   const prof = getProfessional(appointmentForm.professionalId);
 
   el.innerHTML = `
     <div class="form-card">
-      <h2>5. Motivo de Consulta</h2>
+      <h2>4. Motivo de Consulta</h2>
       <p class="form-subtitle">Describe la situación que motiva la atención</p>
 
       <div style="background:var(--teal-lighter);border-radius:var(--radius-sm);padding:16px;margin-bottom:20px;border:1px solid var(--teal-light)">
@@ -1149,7 +1157,7 @@ function renderAppointmentStep5() {
     appointmentForm.motivoDetalle = textareaDetalle.value;
   });
 
-  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep4);
+  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep3);
   document.getElementById('btn-step-submit').addEventListener('click', () => {
     if (!appointmentForm.motivo) {
       document.getElementById('err-motivo').textContent = 'Por favor selecciona el motivo principal.';
@@ -1226,7 +1234,7 @@ function submitAppointment() {
   saveTasks();
 
   showToast('✓ Cita guardada en Mi Agenda y tutor sincronizado automáticamente con Mi Directorio.', 'success');
-  updateSteps(6);
+  updateSteps(5);
 
   const el = document.getElementById('form-step-content');
   if (!el) return;

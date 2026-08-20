@@ -886,6 +886,71 @@ textarea {
 }
 
 /* =====================================================================
+   11b. LAYOUT UNIFICADO FECHA & HORA
+   ===================================================================== */
+.datetime-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 10px;
+  align-items: start;
+}
+
+.datetime-col {
+  background: var(--white);
+  border: 1.5px solid var(--gray-lighter);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.datetime-col-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--teal-dark);
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--teal-light);
+}
+
+.time-panel {
+  min-height: 120px;
+}
+
+.time-placeholder {
+  color: var(--gray);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 24px 8px;
+  line-height: 1.6;
+}
+
+.date-grid {
+  grid-template-columns: repeat(2, 1fr) !important;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-light) transparent;
+}
+
+.time-grid {
+  grid-template-columns: repeat(2, 1fr) !important;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-light) transparent;
+}
+
+@media (max-width: 640px) {
+  .datetime-layout {
+    grid-template-columns: 1fr;
+  }
+  .date-grid, .time-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    max-height: 200px;
+  }
+}
+
+/* =====================================================================
    12. CUADRÍCULA DE SERVICIOS (FORMULARIO DE CITA)
    ===================================================================== */
 .service-grid {
