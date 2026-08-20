@@ -413,6 +413,10 @@ function setActiveNav(hash) {
 function updateHeaderAuthState() {
   const isAuth = state.auth.isAuthenticated;
   const nav = document.getElementById('nav');
+  const menuToggle = document.getElementById('menu-toggle');
+
+  // Ocultar/mostrar hamburguesa según autenticación
+  if (menuToggle) menuToggle.style.display = isAuth ? '' : 'none';
 
   // Si no está autenticado, ocultar enlaces de navegación regular y botón Salir
   if (nav) {
@@ -2206,18 +2210,62 @@ function renderPayments(el) {
    14. EVENTOS GLOBALES DE NAVEGACIÓN Y CIERRE DE SESIÓN
    ===================================================================== */
 function initGlobalEvents() {
-  // Único botón de salir / cerrar sesión
+  // ── Botón de Salir / Cerrar sesión ──
   const btnLogoutNav = document.getElementById('btn-logout');
   if (btnLogoutNav) btnLogoutNav.addEventListener('click', handleLogout);
+
+  // ── Sidebar Hamburguesa ──
+  const menuToggle = document.getElementById('menu-toggle');
+  const nav        = document.getElementById('nav');
+  const overlay    = document.getElementById('nav-overlay');
+
+  function openSidebar() {
+    if (!nav || !menuToggle || !overlay) return;
+    nav.classList.add('open');
+    menuToggle.classList.add('open');
+    menuToggle.setAttribute('aria-expanded', 'true');
+    menuToggle.setAttribute('aria-label', 'Cerrar menú de navegación');
+    overlay.classList.add('visible');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeSidebar() {
+    if (!nav || !menuToggle || !overlay) return;
+    nav.classList.remove('open');
+    menuToggle.classList.remove('open');
+    menuToggle.setAttribute('aria-expanded', 'false');
+    menuToggle.setAttribute('aria-label', 'Abrir menú de navegación');
+    overlay.classList.remove('visible');
+    document.body.style.overflow = '';
+  }
+
+  if (menuToggle) {
+    menuToggle.addEventListener('click', () => {
+      nav.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+  }
+
+  // Cerrar al hacer clic en el overlay
+  if (overlay) overlay.addEventListener('click', closeSidebar);
+
+  // Cerrar con tecla Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && nav && nav.classList.contains('open')) closeSidebar();
+  });
+
+  // Exponer closeSidebar globalmente para usarla al navegar
+  window._closeSidebar = closeSidebar;
 }
 
-/* Delegación de enlaces SPA */
+/* Delegación de enlaces SPA + cierre automático del sidebar */
 document.addEventListener('click', (e) => {
   const link = e.target.closest('[data-nav]');
   if (!link) return;
   const href = link.getAttribute('href');
   if (href && href.startsWith('#')) {
     e.preventDefault();
+    // Cerrar sidebar si está abierto
+    if (typeof window._closeSidebar === 'function') window._closeSidebar();
     window.location.hash = href;
   }
 });
