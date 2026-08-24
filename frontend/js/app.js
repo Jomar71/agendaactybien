@@ -1210,14 +1210,14 @@ function submitAppointment() {
       </div>
 
       <div class="whatsapp-confirm-block">
-        <p class="whatsapp-confirm-title">💬 Confirma la cita con el tutor por WhatsApp</p>
-        <p class="whatsapp-confirm-hint">Se abrirá WhatsApp con un mensaje predefinido para ${escapeHtml(appointment.tutorNombre)} (Tel: ${escapeHtml(appointment.telefono)}). Solo debes presionar "Enviar".</p>
+        <p class="whatsapp-confirm-title">💬 Confirmación por WhatsApp</p>
+        <p class="whatsapp-confirm-hint">Estamos enviando el mensaje de confirmación al WhatsApp de ${escapeHtml(appointment.tutorNombre)} (Tel: ${escapeHtml(appointment.telefono)}). Si no llega automáticamente, puedes reenviarlo con el botón.</p>
         <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
           <button type="button" id="btn-send-whatsapp" class="btn btn-whatsapp">
             <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
               <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
             </svg>
-            Enviar por WhatsApp
+            Reenviar por WhatsApp
           </button>
           <button type="button" id="btn-copy-whatsapp-msg" class="btn btn-outline">📋 Copiar mensaje</button>
         </div>
@@ -1231,9 +1231,9 @@ function submitAppointment() {
     </div>
   `;
 
-  // Botón manual de WhatsApp (útil si el navegador bloqueó la apertura automática)
+  // Reenvío manual (intenta automático y usa wa.me como respaldo)
   document.getElementById('btn-send-whatsapp').addEventListener('click', () => {
-    openWhatsAppConfirmation(appointment);
+    notifyWhatsAppConfirmation(appointment);
   });
 
   // Copiar el mensaje al portapapeles como alternativa de envío
@@ -1244,8 +1244,8 @@ function submitAppointment() {
     setTimeout(() => { btn.textContent = '📋 Copiar mensaje'; }, 2500);
   });
 
-  // Apertura automática de WhatsApp al confirmar la cita
-  openWhatsAppConfirmation(appointment);
+  // Envío automático del mensaje de confirmación al confirmar la cita
+  notifyWhatsAppConfirmation(appointment);
 }
 
 /* =====================================================================
@@ -1302,7 +1302,45 @@ function openWhatsAppConfirmation(appointment) {
   anchor.click();
   requestAnimationFrame(() => anchor.remove());
 
-  showToast('✓ Se abrió WhatsApp con el mensaje de confirmación. Presiona "Enviar" para entregárselo al tutor.', 'success');
+  showToast('✓ Se abrió WhatsApp con el mensaje de confirmación. Presiona "Enviar" para entregárselo al tutor.', 'info');
+}
+
+/** URL base del backend (cambia aquí o define window.BACKEND_API_BASE antes
+ *  de app.js si despliegas el backend en otro servidor). */
+const BACKEND_API_BASE = window.BACKEND_API_BASE || 'http://localhost:4000';
+
+/** Intenta enviar la confirmación AUTOMÁTICAMENTE vía WhatsApp Cloud API
+ *  (backend). Si el backend no está disponible o sin credenciales, usa
+ *  wa.me como respaldo. Retorna true solo si el envío automático ocurrió. */
+async function notifyWhatsAppConfirmation(appointment) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${BACKEND_API_BASE}/api/whatsapp/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: normalizeWhatsAppPhone(appointment.telefono),
+        message: buildWhatsAppMessage(appointment)
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.sent) {
+      showToast('✓ Mensaje de confirmación enviado automáticamente al WhatsApp del tutor.', 'success');
+      return true;
+    }
+    throw new Error(data.message || 'backend_no_disponible');
+  } catch {
+    // Respaldo: apertura manual de wa.me mientras se configure la API
+    showToast('ℹ️ Envío automático no disponible todavía. Se abrió WhatsApp para confirmar manualmente.', 'info');
+    openWhatsAppConfirmation(appointment);
+    return false;
+  }
 }
 
 /* =====================================================================
@@ -2205,9 +2243,9 @@ function renderPayments(el) {
         </div>
 
         <div style="margin-top:24px;text-align:center">
-          <a href="https://wa.me/573012345678?text=Hola,%20adjunto%20comprobante%20de%20pago%20para%20la%20cita%20psicol%C3%B3gica"
+          <a href="https://wa.me/573106266100?text=Hola,%20adjunto%20comprobante%20de%20pago%20para%20la%20cita%20psicol%C3%B3gica"
              target="_blank" rel="noopener noreferrer" class="btn btn-green" aria-label="Enviar comprobante por WhatsApp">
-            💬 Enviar Comprobante por WhatsApp (+57 301 234 5678)
+            💬 Enviar Comprobante por WhatsApp (+57 310 626 6100)
           </a>
         </div>
       </div>

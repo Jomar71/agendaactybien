@@ -12,6 +12,7 @@ const serviceRoutes = require('./routes/services');
 const productRoutes = require('./routes/products');
 const paymentRoutes = require('./routes/payments');
 const clientRoutes = require('./routes/clients');
+const whatsappRoutes = require('./routes/whatsapp');
 
 const app = express();
 
