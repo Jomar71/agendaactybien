@@ -26,8 +26,18 @@
 <body>
   <div id="app">
     <!-- ===================== HEADER ===================== -->
+    <!-- Overlay para cerrar el sidebar al hacer clic fuera (móvil/tablet) -->
+    <div id="nav-overlay" aria-hidden="true"></div>
+
     <header id="header" role="banner">
       <div class="header-inner">
+        <!-- Botón hamburguesa (visible en móvil/tablet ≤1024px) -->
+        <button id="menu-toggle" aria-label="Abrir menú de navegación" aria-expanded="false" aria-controls="nav" type="button">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </button>
+
         <!-- Logo -->
         <a href="#/" class="logo" data-nav aria-label="Actitud y Bienestar - Ir al inicio">
           <img src="logo/LOGO ACTITUD Y BIENESTAR SIN FONDO.png"
@@ -36,7 +46,7 @@
         </a>
 
         <!-- Navegación principal limpia con un único botón Salir -->
-        <nav id="nav" role="navigation" aria-label="Navegación principal">
+        <nav id="nav" role="navigation" aria-label="Menú principal">
           <a href="#/" class="nav-link" data-nav>Inicio</a>
           <a href="#/agendar" class="nav-link" data-nav>Mi Agenda</a>
           <a href="#/tareas" class="nav-link" data-nav>Mis Tareas</a>

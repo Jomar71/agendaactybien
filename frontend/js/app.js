@@ -1259,6 +1259,20 @@ function submitAppointment() {
         <div role="listitem"><strong>Motivo:</strong><span>${escapeHtml(appointment.motivo)}</span></div>
       </div>
 
+      <div class="whatsapp-confirm-block">
+        <p class="whatsapp-confirm-title">💬 Confirma la cita con el tutor por WhatsApp</p>
+        <p class="whatsapp-confirm-hint">Se abrirá WhatsApp con un mensaje predefinido para ${escapeHtml(appointment.tutorNombre)} (Tel: ${escapeHtml(appointment.telefono)}). Solo debes presionar "Enviar".</p>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+          <button type="button" id="btn-send-whatsapp" class="btn btn-whatsapp">
+            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            Enviar por WhatsApp
+          </button>
+          <button type="button" id="btn-copy-whatsapp-msg" class="btn btn-outline">📋 Copiar mensaje</button>
+        </div>
+      </div>
+
       <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
         <a href="#/directorio" class="btn btn-primary" data-nav>Ver en Mi Directorio 👥</a>
         <a href="#/historial" class="btn btn-outline" data-nav>Ver Mi Historial 📜</a>
@@ -1266,6 +1280,74 @@ function submitAppointment() {
       </div>
     </div>
   `;
+
+  // Botón manual de WhatsApp (útil si el navegador bloqueó la apertura automática)
+  document.getElementById('btn-send-whatsapp').addEventListener('click', () => {
+    openWhatsAppConfirmation(appointment);
+  });
+
+  // Copiar el mensaje al portapapeles como alternativa de envío
+  document.getElementById('btn-copy-whatsapp-msg').addEventListener('click', (e) => {
+    copyToClipboard(buildWhatsAppMessage(appointment), 'Mensaje de confirmación copiado. Pégalo en WhatsApp.');
+    const btn = e.currentTarget;
+    btn.textContent = '✓ Copiado';
+    setTimeout(() => { btn.textContent = '📋 Copiar mensaje'; }, 2500);
+  });
+
+  // Apertura automática de WhatsApp al confirmar la cita
+  openWhatsAppConfirmation(appointment);
+}
+
+/* =====================================================================
+    9.b CONFIRMACIÓN DE CITA POR WHATSAPP (wa.me)
+   ===================================================================== */
+
+/** Normaliza el teléfono del tutor para el formato internacional de wa.me */
+function normalizeWhatsAppPhone(phone) {
+  let digits = String(phone || '').replace(/\D/g, '');
+  // Colombia: móvil de 10 dígitos que empieza en 3 → prefijo 57
+  if (digits.length === 10 && digits.startsWith('3')) digits = '57' + digits;
+  return digits;
+}
+
+/** Genera el mensaje personalizado de confirmación con los datos de la cita */
+function buildWhatsAppMessage(appointment) {
+  return [
+    '📅 *Confirmación de Cita - Centro Terapéutico*',
+    '',
+    `Hola ${appointment.tutorNombre},`,
+    '',
+    'Tu cita ha sido agendada exitosamente:',
+    '',
+    `👦 Paciente: ${appointment.pacienteNombre}`,
+    `👨‍⚕️ Profesional: ${appointment.professionalName}`,
+    `📆 Fecha: ${formatDate(appointment.fecha)}`,
+    `🕐 Hora: ${appointment.hora}`,
+    `📝 Motivo: ${appointment.motivo}`,
+    '',
+    'Por favor, llega 10 minutos antes.',
+    'Si necesitas cancelar o reprogramar, contáctanos.',
+    '',
+    '¡Te esperamos! 💙'
+  ].join('\n');
+}
+
+/** Abre WhatsApp del tutor con el mensaje predefinido; retorna true si se abrió */
+function openWhatsAppConfirmation(appointment) {
+  const phone = normalizeWhatsAppPhone(appointment.telefono);
+  const text = encodeURIComponent(buildWhatsAppMessage(appointment));
+  const url = phone
+    ? `https://wa.me/${phone}?text=${text}`
+    : `https://wa.me/?text=${text}`;
+
+  const win = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!win) {
+    // Popup bloqueado: ofrecer apertura manual
+    showToast('No se pudo abrir WhatsApp automáticamente. Usa el botón "Enviar por WhatsApp".', 'error');
+    return false;
+  }
+  showToast('✓ WhatsApp abierto con el mensaje de confirmación listo para enviar.', 'success');
+  return true;
 }
 
 /* =====================================================================
@@ -2227,16 +2309,24 @@ function initGlobalEvents() {
     menuToggle.setAttribute('aria-label', 'Cerrar menú de navegación');
     overlay.classList.add('visible');
     document.body.style.overflow = 'hidden';
+    // Mover el foco al primer enlace navegable (accesibilidad por teclado)
+    requestAnimationFrame(() => {
+      const firstLink = nav.querySelector('.nav-link:not([style*="none"])');
+      if (firstLink) firstLink.focus();
+    });
   }
 
-  function closeSidebar() {
+  function closeSidebar({ restoreFocus = false } = {}) {
     if (!nav || !menuToggle || !overlay) return;
+    const wasOpen = nav.classList.contains('open');
     nav.classList.remove('open');
     menuToggle.classList.remove('open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuToggle.setAttribute('aria-label', 'Abrir menú de navegación');
     overlay.classList.remove('visible');
     document.body.style.overflow = '';
+    // Devolver el foco al botón hamburguesa tras cerrar con teclado
+    if (wasOpen && restoreFocus) menuToggle.focus();
   }
 
   if (menuToggle) {
@@ -2246,12 +2336,18 @@ function initGlobalEvents() {
   }
 
   // Cerrar al hacer clic en el overlay
-  if (overlay) overlay.addEventListener('click', closeSidebar);
+  if (overlay) overlay.addEventListener('click', () => closeSidebar({ restoreFocus: true }));
 
-  // Cerrar con tecla Escape
+  // Cerrar con tecla Escape y devolver el foco al botón
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && nav && nav.classList.contains('open')) closeSidebar();
+    if (e.key === 'Escape' && nav && nav.classList.contains('open')) closeSidebar({ restoreFocus: true });
   });
+
+  // Si la ventana crece a escritorio (>1024px) con el menú abierto, limpiar estado
+  const desktopMQ = window.matchMedia('(min-width: 1025px)');
+  const handleDesktopChange = (mq) => { if (mq.matches) closeSidebar(); };
+  if (typeof desktopMQ.addEventListener === 'function') desktopMQ.addEventListener('change', handleDesktopChange);
+  else if (typeof desktopMQ.addListener === 'function') desktopMQ.addListener(handleDesktopChange);
 
   // Exponer closeSidebar globalmente para usarla al navegar
   window._closeSidebar = closeSidebar;
