@@ -212,6 +212,8 @@ textarea {
   flex-shrink: 0;
   z-index: 310;
   position: relative;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #menu-toggle:hover {
@@ -240,14 +242,16 @@ textarea {
   transform: translateY(-7.5px) rotate(-45deg);
 }
 
-/* ── Overlay oscuro ── */
+/* ── Overlay oscuro ──
+   IMPORTANTE: z-index por DEBAJO del header (200) para que el sidebar,
+   el botón hamburguesa y la barra superior queden POR ENCIMA del overlay.
+   Antes estaba en 290 y tapaba/borrosaba el menú abierto. */
 #nav-overlay {
   display: none;
   position: fixed;
   inset: 0;
   background: rgba(15, 24, 25, 0.55);
-  z-index: 290;
-  backdrop-filter: blur(2px);
+  z-index: 150;
   opacity: 0;
   transition: opacity var(--transition);
 }
@@ -341,6 +345,7 @@ textarea {
     position: fixed;
     top: 0;
     left: 0;
+    height: 100vh;
     height: 100dvh;
     width: 280px;
     max-width: 85vw;
@@ -355,6 +360,12 @@ textarea {
     transform: translateX(-110%);
     transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     overflow-y: auto;
+    /* Evita texto borroso al animar el panel en móviles */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    will-change: transform;
   }
 
   #nav.open {

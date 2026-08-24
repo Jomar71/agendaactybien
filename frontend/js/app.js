@@ -21,31 +21,17 @@ const DEMO_CREDENTIALS = {
 const PROFESSIONALS = [
   {
     id: 1,
-    nombre: 'Lic. Ana Pérez',
-    especialidad: 'Psicología Infantil y Terapia de Juego',
-    descripcion: 'Especialista en desarrollo emocional infantil, expresión a través del juego, manejo de miedos y adaptación escolar. 8 años de experiencia.',
-    emoji: '🧸'
-  },
-  {
-    id: 2,
-    nombre: 'Dr. Carlos Gómez',
-    especialidad: 'Psicología Adolescente y TCC',
-    descripcion: 'Experto en trastornos de ansiedad, estado de ánimo, autoestima, habilidades sociales y transición a la juventud. Enfoque cognitivo-conductual.',
+    nombre: 'Dra. Anabeli Córdoba',
+    especialidad: 'Psicología Clínica',
+    descripcion: 'Atención psicológica clínica integral para niños, niñas y adolescentes: evaluación, diagnóstico y tratamiento de dificultades emocionales y conductuales.',
     emoji: '🧠'
   },
   {
-    id: 3,
-    nombre: 'Lic. Marta Ríos',
-    especialidad: 'Terapia Familiar y Orientación a Padres',
-    descripcion: 'Psicóloga clínica enfocada en dinámicas familiares, pautas de crianza respetuosa, resolución de conflictos y comunicación asertiva.',
-    emoji: '🌱'
-  },
-  {
-    id: 4,
-    nombre: 'Dr. Andrés Vargas',
-    especialidad: 'Neuropsicología Infantil y TDAH',
-    descripcion: 'Evaluación diagnóstica y estimulación neuropsicológica: TDAH, dificultades del aprendizaje, memoria de trabajo y funciones ejecutivas.',
-    emoji: '⚡'
+    id: 2,
+    nombre: 'Paola Montenegro',
+    especialidad: 'Terapeuta Emocional',
+    descripcion: 'Acompañamiento terapéutico enfocado en el bienestar emocional: manejo de emociones, autoestima, ansiedad y desarrollo de habilidades socioemocionales.',
+    emoji: '💚'
   }
 ];
 
@@ -811,9 +797,9 @@ function renderAppointmentStep1() {
       <h2>1. Selecciona el Profesional</h2>
       <p class="form-subtitle">Elige al especialista para la atención psicológica</p>
 
-      <div class="form-group" style="margin-bottom:20px">
-        <label for="f-prof-select">Desplegable de profesionales <span style="color:var(--danger)">*</span></label>
-        <select id="f-prof-select" aria-label="Selecciona un profesional de la lista">
+      <div class="form-group" style="margin-bottom:20px;max-width:480px">
+        <label for="f-prof-select">Profesional <span style="color:var(--danger)">*</span></label>
+        <select id="f-prof-select" aria-label="Selecciona un profesional de la lista" aria-required="true">
           <option value="">— Selecciona un profesional —</option>
           ${PROFESSIONALS.map(p => `
             <option value="${p.id}" ${appointmentForm.professionalId === p.id ? 'selected' : ''}>
@@ -821,25 +807,7 @@ function renderAppointmentStep1() {
             </option>
           `).join('')}
         </select>
-      </div>
-
-      <div class="service-grid" role="listbox" aria-label="Tarjetas de profesionales disponibles" id="professional-list">
-        ${PROFESSIONALS.map(p => `
-          <div class="card card-select card-service ${appointmentForm.professionalId === p.id ? 'selected' : ''}"
-               data-prof-id="${p.id}" role="option"
-               aria-selected="${appointmentForm.professionalId === p.id}"
-               tabindex="0"
-               aria-label="${escapeHtml(p.nombre)} – ${escapeHtml(p.especialidad)}">
-            <div class="card-service-header">
-              <div>
-                <span style="font-size:1.5rem" aria-hidden="true">${p.emoji}</span>
-                <h3 style="margin-top:6px;font-size:1.05rem">${escapeHtml(p.nombre)}</h3>
-              </div>
-            </div>
-            <p style="font-size:0.83rem;color:var(--teal);font-weight:700;margin-bottom:6px">${escapeHtml(p.especialidad)}</p>
-            <p style="font-size:0.84rem;color:var(--gray)">${escapeHtml(p.descripcion)}</p>
-          </div>
-        `).join('')}
+        <div class="hint">Solo trabajamos con los profesionales listados.</div>
       </div>
 
       <div class="form-nav">
@@ -853,32 +821,14 @@ function renderAppointmentStep1() {
   const profSelect = el.querySelector('#f-prof-select');
   const nextBtn = el.querySelector('#btn-step-next');
 
-  const selectProf = (id) => {
-    appointmentForm.professionalId = parseInt(id);
-    profSelect.value = id;
-    el.querySelectorAll('[data-prof-id]').forEach(c => {
-      const match = parseInt(c.dataset.profId) === appointmentForm.professionalId;
-      c.classList.toggle('selected', match);
-      c.setAttribute('aria-selected', String(match));
-    });
-    nextBtn.disabled = false;
-  };
-
   profSelect.addEventListener('change', (e) => {
-    if (e.target.value) selectProf(e.target.value);
-    else {
+    if (e.target.value) {
+      appointmentForm.professionalId = parseInt(e.target.value);
+      nextBtn.disabled = false;
+    } else {
       appointmentForm.professionalId = null;
-      el.querySelectorAll('[data-prof-id]').forEach(c => c.classList.remove('selected'));
       nextBtn.disabled = true;
     }
-  });
-
-  el.querySelectorAll('[data-prof-id]').forEach(card => {
-    const act = () => selectProf(card.dataset.profId);
-    card.addEventListener('click', act);
-    card.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); }
-    });
   });
 
   nextBtn.addEventListener('click', () => {
@@ -1332,7 +1282,10 @@ function buildWhatsAppMessage(appointment) {
   ].join('\n');
 }
 
-/** Abre WhatsApp del tutor con el mensaje predefinido; retorna true si se abrió */
+/** Abre WhatsApp del tutor con el mensaje predefinido.
+ *  Usa un <a> sintético con click() porque es más confiable que window.open
+ *  en móviles (window.open con 'noopener' siempre retorna null y dispara
+ *  falsos positivos de "popup bloqueado"). */
 function openWhatsAppConfirmation(appointment) {
   const phone = normalizeWhatsAppPhone(appointment.telefono);
   const text = encodeURIComponent(buildWhatsAppMessage(appointment));
@@ -1340,14 +1293,16 @@ function openWhatsAppConfirmation(appointment) {
     ? `https://wa.me/${phone}?text=${text}`
     : `https://wa.me/?text=${text}`;
 
-  const win = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!win) {
-    // Popup bloqueado: ofrecer apertura manual
-    showToast('No se pudo abrir WhatsApp automáticamente. Usa el botón "Enviar por WhatsApp".', 'error');
-    return false;
-  }
-  showToast('✓ WhatsApp abierto con el mensaje de confirmación listo para enviar.', 'success');
-  return true;
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  requestAnimationFrame(() => anchor.remove());
+
+  showToast('✓ Se abrió WhatsApp con el mensaje de confirmación. Presiona "Enviar" para entregárselo al tutor.', 'success');
 }
 
 /* =====================================================================
