@@ -1,8 +1,8 @@
 /* =====================================================================
    ACTITUD & BIENESTAR – GESTIÓN TERAPÉUTICA INFANTIL Y JUVENIL
    app.js – Lógica principal de la SPA con Autenticación, Mi Directorio,
-            Formas de Pago, Mis Tareas, Mi Agenda y Mi Historial
-   Versión: 3.1.0
+            Avisos con Timbre, Mis Tareas, Mi Agenda y Mi Historial
+   Versión: 3.2.0
    ===================================================================== */
 
 /* =====================================================================
@@ -50,11 +50,10 @@ const MOTIVOS = [
   'Otro motivo'
 ];
 
-/** Horarios disponibles */
+/** Horarios disponibles (franjas de 5 minutos, de 08:00 a 17:30) */
 const TIME_SLOTS = [];
-for (let h = 8; h <= 17; h++) {
-  TIME_SLOTS.push(`${h.toString().padStart(2, '0')}:00`);
-  if (h < 17) TIME_SLOTS.push(`${h.toString().padStart(2, '0')}:30`);
+for (let m = 8 * 60; m <= 17 * 60 + 30; m += 5) {
+  TIME_SLOTS.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 }
 
 /** Contactos iniciales predeterminados para Mi Directorio */
@@ -114,7 +113,9 @@ let appointmentForm = {
   telefono: '',
   email: '',
   motivo: '',
-  motivoDetalle: ''
+  motivoDetalle: '',
+  reminderOffset: null,
+  reminderSound: 'timbre'
 };
 
 /** Estado del calendario de Mis Tareas */
@@ -391,7 +392,8 @@ function closeModal() {
    ===================================================================== */
 function setActiveNav(hash) {
   document.querySelectorAll('.nav-link, .footer-nav-link').forEach(a => {
-    const href = a.getAttribute('href') || '#/';
+    const href = a.getAttribute('href');
+    if (!href) return; // botones (Salir, Avisos) no son rutas
     a.classList.toggle('active', href === hash);
   });
 }
@@ -440,7 +442,6 @@ function router() {
   else if (hash === '#/tareas')                                  renderTasks(content);
   else if (hash === '#/historial')                               renderHistory(content);
   else if (hash === '#/directorio')                              renderDirectory(content);
-  else if (hash === '#/pagos')                                   renderPayments(content);
   else                                                           renderHome(content);
 }
 
@@ -641,14 +642,6 @@ function renderHome(el) {
           <div class="metric-label">Contactos en Mi Directorio</div>
         </div>
       </div>
-
-      <div class="metric-card">
-        <div class="metric-icon metric-icon--orange" aria-hidden="true">💳</div>
-        <div>
-          <div class="metric-number">2</div>
-          <div class="metric-label">Cuentas para Pagos</div>
-        </div>
-      </div>
     </div>
 
     <!-- Columnas del Dashboard -->
@@ -717,7 +710,6 @@ function renderHome(el) {
       <a href="#/tareas" class="btn btn-green" data-nav>📋 Mis Tareas</a>
       <a href="#/directorio" class="btn btn-outline" data-nav>👥 Mi Directorio</a>
       <a href="#/historial" class="btn btn-secondary" data-nav>📜 Mi Historial</a>
-      <a href="#/pagos" class="btn btn-secondary" data-nav>💳 Formas de Pago</a>
     </div>
   `;
 }
@@ -737,15 +729,51 @@ function renderAppointment(el) {
     telefono: '',
     email: '',
     motivo: '',
-    motivoDetalle: ''
+    motivoDetalle: '',
+    reminderOffset: null,
+    reminderSound: 'timbre'
   });
+
+  loadAppointments();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const upcoming = state.appointments
+    .filter(a => a.fecha >= todayStr && a.estado !== 'cancelada')
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora));
+
+  const upcomingHtml = upcoming.length === 0
+    ? `<p style="color:var(--gray-light);font-size:0.88rem;text-align:center;padding:14px 0 4px">
+         Aún no tienes citas programadas. Agenda tu primera cita 👇
+       </p>`
+    : `<ul class="appt-manage-list" role="list">
+         ${upcoming.map(a => `
+           <li class="appt-manage-item" role="listitem">
+             <div class="appt-manage-info">
+               <strong>${formatDateShort(a.fecha)} · ${escapeHtml(a.hora)}</strong>
+               <span>🧒 ${escapeHtml(a.pacienteNombre)} — ${escapeHtml(a.professionalName)}</span>
+             </div>
+             <div class="appt-manage-actions">
+               <button type="button" class="btn btn-sm btn-outline" data-action="reschedule" data-id="${escapeHtml(a.id)}">🕑 Reagendar</button>
+               <button type="button" class="btn btn-sm" style="color:var(--danger);background:var(--danger-bg)" data-action="cancel-appt" data-id="${escapeHtml(a.id)}">✕ Cancelar</button>
+             </div>
+           </li>
+         `).join('')}
+       </ul>`;
 
   el.innerHTML = `
     <div class="page-header" role="banner">
-      <h1>Mi Agenda – Citas Psicológicas</h1>
+      <h1>Mi Agenda y Citas</h1>
       <p>Selecciona profesional, fecha y los datos del tutor y paciente (se guardan automáticamente en Mi Directorio)</p>
     </div>
     <div class="container">
+      <!-- Gestión de citas próximas -->
+      <section class="appt-manage" aria-labelledby="appt-manage-title">
+        <h2 id="appt-manage-title" style="font-size:1.1rem;font-weight:800;color:var(--dark);margin-bottom:10px">
+          📌 Mis próximas citas (${upcoming.length})
+        </h2>
+        ${upcomingHtml}
+        <hr class="section-divider" aria-hidden="true">
+      </section>
+
       <div class="appointment-form" id="appointment-form" role="region" aria-label="Formulario de agendamiento">
         <!-- Stepper -->
         <nav aria-label="Progreso de Mi Agenda" role="navigation">
@@ -755,7 +783,7 @@ function renderAppointment(el) {
               ['2', 'Fecha & Hora'],
               ['3', 'Datos'],
               ['4', 'Motivo'],
-              ['5', 'Confirmación']
+              ['5', 'Aviso y Revisión']
             ].map(([num, label], i, arr) => `
               <div class="step${i === 0 ? ' active' : ''}" data-step="${num}" role="listitem"
                    aria-current="${i === 0 ? 'step' : 'false'}" aria-label="Paso ${num}: ${label}">
@@ -771,7 +799,163 @@ function renderAppointment(el) {
     </div>
   `;
 
+  // Acciones: reagendar / cancelar cita próxima
+  el.querySelectorAll('[data-action="reschedule"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const a = state.appointments.find(x => x.id === btn.dataset.id);
+      if (a) openRescheduleAppointmentModal(a, () => renderAppointment(el));
+    });
+  });
+
+  el.querySelectorAll('[data-action="cancel-appt"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const a = state.appointments.find(x => x.id === btn.dataset.id);
+      if (!a) return;
+      if (confirm(`¿Cancelar la cita de ${a.pacienteNombre} el ${formatDate(a.fecha)} a las ${a.hora}?`)) {
+        a.estado = 'cancelada';
+        saveAppointments();
+        showToast('Cita cancelada de Mi Agenda.', 'info');
+        renderAppointment(el);
+      }
+    });
+  });
+
   renderAppointmentStep1();
+}
+
+/** Modal para reagendar una cita existente (edita datos, fecha y hora) */
+function openRescheduleAppointmentModal(appointment, onDone) {
+  const renderDateOptions = () => {
+    const days = getNextWorkDays(60);
+    return `<select id="rs-date" aria-label="Nueva fecha">
+      ${days.map(d => {
+        const ds = d.toISOString().split('T')[0];
+        return `<option value="${ds}" ${ds === appointment.fecha ? 'selected' : ''}>${formatDate(d)}</option>`;
+      }).join('')}
+    </select>`;
+  };
+
+  const renderTimeOptions = (dateStr) => {
+    const booked = getBookedSlots(dateStr).filter(s => s !== appointment.hora);
+    return `<select id="rs-time" aria-label="Nueva hora">
+      ${TIME_SLOTS.map(t => `<option value="${t}" ${t === appointment.hora ? 'selected' : ''} ${booked.includes(t) ? 'disabled' : ''}>${t}${booked.includes(t) ? ' (ocupado)' : ''}</option>`).join('')}
+    </select>`;
+  };
+
+  openModal(
+    '🕑 Reagendar y Editar Cita',
+    `
+    <p style="margin-bottom:14px;color:var(--gray);font-size:0.9rem;line-height:1.6">
+      Modifica los datos que necesites o la fecha/hora de la cita de <strong>${escapeHtml(appointment.pacienteNombre)}</strong> con ${escapeHtml(appointment.professionalName)}.
+    </p>
+
+    <div class="form-row-inline">
+      <div class="form-group" style="margin:0">
+        <label for="rs-date">📅 Fecha</label>
+        ${renderDateOptions()}
+      </div>
+      <div class="form-group" style="margin:0">
+        <label for="rs-paciente">🧒 Edad del paciente (años)</label>
+        <input type="number" id="rs-edad" min="2" max="85" value="${escapeHtml(appointment.pacienteEdad || '')}">
+      </div>
+    </div>
+
+    <div id="rs-time-wrap" class="form-group">
+      <label for="rs-time">🕐 Hora</label>
+      ${renderTimeOptions(appointment.fecha)}
+    </div>
+
+    <hr class="section-divider" aria-hidden="true">
+
+    <div class="form-group">
+      <label for="rs-tutor">👨‍👩‍👦 Nombre del tutor</label>
+      <input type="text" id="rs-tutor" value="${escapeHtml(appointment.tutorNombre || '')}">
+    </div>
+    <div class="form-group">
+      <label for="rs-paciente-nombre">🧒 Nombre completo del paciente</label>
+      <input type="text" id="rs-paciente-nombre" value="${escapeHtml(appointment.pacienteNombre || '')}">
+    </div>
+    <div class="form-row-inline">
+      <div class="form-group" style="margin:0">
+        <label for="rs-tel">📞 Teléfono</label>
+        <input type="tel" id="rs-tel" value="${escapeHtml(appointment.telefono || '')}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label for="rs-email">✉️ Correo</label>
+        <input type="email" id="rs-email" value="${escapeHtml(appointment.email || '')}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="rs-motivo">📝 Motivo</label>
+      <select id="rs-motivo">
+        ${MOTIVOS.map(m => `<option value="${escapeHtml(m)}" ${m === appointment.motivo ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label for="rs-motivo-detalle">Detalle adicional <span style="font-weight:400;color:var(--gray-light)">(opcional)</span></label>
+      <textarea id="rs-motivo-detalle" rows="3" maxlength="600">${escapeHtml(appointment.motivoDetalle || '')}</textarea>
+    </div>
+    `,
+    `
+    <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary btn-sm" id="btn-save-reschedule">Guardar Cambios</button>
+    `
+  );
+
+  document.getElementById('rs-date').addEventListener('change', (e) => {
+    const day = e.target.value;
+    const booked = getBookedSlots(day).filter(s => s !== appointment.hora);
+    document.getElementById('rs-time-wrap').innerHTML = `
+      <label for="rs-time">🕐 Hora</label>
+      <select id="rs-time">
+        ${TIME_SLOTS.map(t => `<option value="${t}" ${booked.includes(t) ? 'disabled' : ''}>${t}${booked.includes(t) ? ' (ocupado)' : ''}</option>`).join('')}
+      </select>`;
+  });
+
+  document.getElementById('btn-save-reschedule').addEventListener('click', () => {
+    const newDate = document.getElementById('rs-date').value;
+    const newTime = document.getElementById('rs-time').value;
+    if (!newDate || !newTime) return;
+
+    const prevDate = appointment.fecha;
+    const prevName = appointment.pacienteNombre;
+
+    appointment.fecha = newDate;
+    appointment.hora = newTime;
+    appointment.tutorNombre = document.getElementById('rs-tutor').value.trim();
+    appointment.pacienteNombre = document.getElementById('rs-paciente-nombre').value.trim();
+    appointment.pacienteEdad = parseInt(document.getElementById('rs-edad').value, 10) || appointment.pacienteEdad;
+    appointment.telefono = document.getElementById('rs-tel').value.trim();
+    appointment.email = document.getElementById('rs-email').value.trim();
+    appointment.motivo = document.getElementById('rs-motivo').value;
+    appointment.motivoDetalle = document.getElementById('rs-motivo-detalle').value.trim();
+
+    saveAppointments();
+
+    // Actualizar la tarea-recordatorio vinculada (misma cita, no duplicar avisos)
+    const link = state.tasks.find(t =>
+      t.category === 'cita' &&
+      t.date === prevDate &&
+      t.time === appointment.hora &&
+      t.title && t.title.includes(appointment.professionalName));
+    if (link) {
+      link.date = newDate;
+      link.time = newTime;
+      if (prevName) link.description = `Paciente: ${appointment.pacienteNombre}. Tutor: ${appointment.tutorNombre}.`;
+      saveTasks();
+    }
+
+    // Limpiar el aviso ya notificado para que vuelva a avisar con la nueva fecha/hora
+    const notified = loadNotified();
+    if (notified[`app:${appointment.id}`]) {
+      delete notified[`app:${appointment.id}`];
+      saveNotified(notified);
+    }
+
+    closeModal();
+    showToast('✓ Cita reagendada correctamente.', 'success');
+    if (onDone) onDone();
+  });
 }
 
 function updateSteps(activeStep) {
@@ -836,68 +1020,48 @@ function renderAppointmentStep1() {
   });
 }
 
+let apptDateView = 'dias';          // 'dias' | 'semanas' | 'meses'
+let apptMonthCursor = null;         // fecha de referencia para la vista de meses
+
+const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function startOfWeek(d) {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const wd = (r.getDay() + 6) % 7; // lunes = 0
+  r.setDate(r.getDate() - wd);
+  return r;
+}
+
 function renderAppointmentStep2() {
   const el = document.getElementById('form-step-content');
   if (!el) return;
   updateSteps(2);
-  const days = getNextWorkDays(45);
   const prof = getProfessional(appointmentForm.professionalId);
 
-  const renderTimeSlots = (dateStr) => {
-    const booked = getBookedSlots(dateStr);
-    const timePanel = document.getElementById('time-panel');
-    if (!timePanel) return;
-    if (!dateStr) {
-      timePanel.innerHTML = `<p class="time-placeholder">👆 Selecciona una fecha para ver los horarios disponibles</p>`;
-      return;
-    }
-    timePanel.innerHTML = `
-      <div class="time-grid" id="time-grid" role="listbox" aria-label="Horarios disponibles">
-        ${TIME_SLOTS.map(t => {
-          const isBooked = booked.includes(t);
-          const selected = appointmentForm.time === t;
-          return `
-            <button class="time-btn ${selected ? 'selected' : ''}" data-time="${t}"
-                    ${isBooked ? 'disabled aria-disabled="true"' : ''}
-                    role="option" aria-selected="${selected}"
-                    aria-label="${t}${isBooked ? ' – Ocupado' : ' – Disponible'}">
-              ${t}${isBooked ? ' ⛔' : ''}
-            </button>`;
-        }).join('')}
-      </div>`;
-
-    timePanel.querySelectorAll('.time-btn:not(:disabled)').forEach(btn => {
-      btn.addEventListener('click', () => {
-        timePanel.querySelectorAll('.time-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
-        btn.classList.add('selected');
-        btn.setAttribute('aria-selected', 'true');
-        appointmentForm.time = btn.dataset.time;
-        document.getElementById('btn-step-next').disabled = false;
-      });
-    });
-  };
+  if (!apptMonthCursor) apptMonthCursor = new Date();
 
   el.innerHTML = `
     <div class="form-card">
       <h2>2. Elige Fecha y Hora</h2>
       <p class="form-subtitle">Profesional: <strong style="color:var(--teal)">${escapeHtml(prof.nombre)}</strong></p>
 
+      <div class="view-tabs" role="tablist" aria-label="Cómo elegir la fecha">
+        ${[
+          ['dias', '📅 Por Días'],
+          ['semanas', '🗓️ Por Semanas'],
+          ['meses', '📆 Por Mes']
+        ].map(([v, label]) => `
+          <button type="button" class="view-tab ${apptDateView === v ? 'active' : ''}" data-view="${v}"
+                  role="tab" aria-selected="${apptDateView === v}"
+                  aria-controls="date-panel">${label}</button>
+        `).join('')}
+      </div>
+
       <div class="datetime-layout">
         <!-- Panel izquierdo: Fechas -->
         <div class="datetime-col">
           <h3 class="datetime-col-title">📅 Fecha</h3>
-          <div class="date-grid" id="date-grid" role="listbox" aria-label="Fechas hábiles disponibles">
-            ${days.map(d => {
-              const dStr = d.toISOString().split('T')[0];
-              const selected = appointmentForm.date === dStr;
-              return `
-                <button class="date-btn ${selected ? 'selected' : ''}" data-date="${dStr}"
-                        role="option" aria-selected="${selected}"
-                        aria-label="${formatDate(d)}">
-                  ${formatDateShort(d)}
-                </button>`;
-            }).join('')}
-          </div>
+          <div id="date-panel" role="region" aria-label="Selección de fecha"></div>
         </div>
 
         <!-- Panel derecho: Horas -->
@@ -916,24 +1080,174 @@ function renderAppointmentStep2() {
     </div>
   `;
 
-  // Si ya hay fecha seleccionada, renderizar horas inmediatamente
-  if (appointmentForm.date) renderTimeSlots(appointmentForm.date);
-
-  el.querySelectorAll('.date-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      el.querySelectorAll('.date-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
-      btn.classList.add('selected');
-      btn.setAttribute('aria-selected', 'true');
-      appointmentForm.date = btn.dataset.date;
-      appointmentForm.time = null; // resetear hora al cambiar fecha
-      document.getElementById('btn-step-next').disabled = true;
-      renderTimeSlots(appointmentForm.date);
+  el.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      apptDateView = tab.dataset.view;
+      el.querySelectorAll('.view-tab').forEach(t => {
+        const active = t === tab;
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', String(active));
+      });
+      renderApptDatePanel();
     });
   });
+
+  renderApptDatePanel();
+  renderApptTimePanel(appointmentForm.date);
 
   document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep1);
   document.getElementById('btn-step-next').addEventListener('click', () => {
     if (appointmentForm.date && appointmentForm.time) renderAppointmentStep3();
+  });
+}
+
+/** Selecciona una fecha concreta y refresca ambos paneles */
+function setApptDate(dStr) {
+  appointmentForm.date = dStr;
+  appointmentForm.time = null;
+  const next = document.getElementById('btn-step-next');
+  if (next) next.disabled = true;
+  renderApptDatePanel();
+  renderApptTimePanel(dStr);
+}
+
+/** Dibuja el panel de fechas según la vista activa (días / semanas / meses) */
+function renderApptDatePanel() {
+  const host = document.getElementById('date-panel');
+  if (!host) return;
+  const sel = appointmentForm.date;
+  const days = getNextWorkDays(45);
+  const dayStr = d => d.toISOString().split('T')[0];
+
+  const bindDates = (container) => {
+    container.querySelectorAll('[data-date]').forEach(b => {
+      b.addEventListener('click', () => setApptDate(b.dataset.date));
+    });
+  };
+
+  if (apptDateView === 'semanas') {
+    const groups = [];
+    days.forEach(d => {
+      const skey = startOfWeek(d).toISOString().split('T')[0];
+      const g = groups.find(x => x.skey === skey);
+      if (g) g.days.push(d);
+      else groups.push({ skey, days: [d] });
+    });
+    host.innerHTML = `
+      <div class="week-list" role="list">
+        ${groups.map(g => `
+          <div class="week-card" role="listitem">
+            <div class="week-title">Semana del ${formatDateShort(startOfWeek(g.days[0]))}</div>
+            <div class="week-chips">
+              ${g.days.map(d => {
+                const ds = dayStr(d);
+                return `<button type="button" class="date-chip ${sel === ds ? 'selected' : ''}" data-date="${ds}"
+                                role="option" aria-selected="${sel === ds}">${formatDateShort(d)}</button>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>`;
+    bindDates(host);
+    return;
+  }
+
+  if (apptDateView === 'meses') {
+    host.innerHTML = `
+      <div class="month-nav">
+        <button type="button" id="mth-prev" class="btn btn-outline btn-sm" aria-label="Mes anterior">←</button>
+        <strong id="mth-label"></strong>
+        <button type="button" id="mth-next" class="btn btn-outline btn-sm" aria-label="Mes siguiente">→</button>
+      </div>
+      <div id="mth-grid" class="month-grid" aria-label="Calendario mensual"></div>`;
+
+    const renderMonth = () => {
+      const y = apptMonthCursor.getFullYear();
+      const m = apptMonthCursor.getMonth();
+      document.getElementById('mth-label').textContent = `${MONTH_NAMES[m]} ${y}`;
+      const grid = document.getElementById('mth-grid');
+      const heads = ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(h => `<span class="month-cell mth-head" aria-hidden="true">${h}</span>`).join('');
+      const first = new Date(y, m, 1);
+      const startPad = (first.getDay() + 6) % 7; // Lunes = primera columna
+      const dim = new Date(y, m + 1, 0).getDate();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const cells = [];
+      for (let i = 0; i < startPad; i++) cells.push('<span class="month-cell mth-void" aria-hidden="true"></span>');
+      for (let d = 1; d <= dim; d++) {
+        const dt = new Date(y, m, d);
+        const ds = dt.toISOString().split('T')[0];
+        const weekend = dt.getDay() === 0 || dt.getDay() === 6;
+        const past = ds < todayStr;
+        const disabled = past || weekend;
+        cells.push(`
+          <button type="button" class="month-cell mth-day ${sel === ds ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
+                  data-date="${ds}" ${disabled ? 'disabled aria-disabled="true"' : ''}
+                  aria-label="${formatDate(dt)}">${d}</button>`);
+      }
+      grid.innerHTML = heads + cells.join('');
+      bindDates(grid);
+      document.getElementById('mth-prev').addEventListener('click', () => {
+        apptMonthCursor = new Date(y, m - 1, 1);
+        renderMonth();
+      });
+      document.getElementById('mth-next').addEventListener('click', () => {
+        apptMonthCursor = new Date(y, m + 1, 1);
+        renderMonth();
+      });
+    };
+    renderMonth();
+    return;
+  }
+
+  // Vista por días (por defecto)
+  host.innerHTML = `
+    <div class="date-grid" role="listbox" aria-label="Fechas hábiles disponibles">
+      ${days.map(d => {
+        const ds = dayStr(d);
+        const selected = sel === ds;
+        return `
+          <button type="button" class="date-btn ${selected ? 'selected' : ''}" data-date="${ds}"
+                  role="option" aria-selected="${selected}"
+                  aria-label="${formatDate(d)}">
+            ${formatDateShort(d)}
+          </button>`;
+      }).join('')}
+    </div>`;
+  bindDates(host);
+}
+
+/** Dibuja los horarios disponibles para una fecha dada */
+function renderApptTimePanel(dateStr) {
+  const timePanel = document.getElementById('time-panel');
+  if (!timePanel) return;
+  if (!dateStr) {
+    timePanel.innerHTML = `<p class="time-placeholder">👆 Selecciona una fecha para ver los horarios disponibles</p>`;
+    return;
+  }
+  const booked = getBookedSlots(dateStr);
+  timePanel.innerHTML = `
+    <div class="time-grid" id="time-grid" role="listbox" aria-label="Horarios disponibles">
+      ${TIME_SLOTS.map(t => {
+        const isBooked = booked.includes(t);
+        const selected = appointmentForm.time === t;
+        return `
+          <button type="button" class="time-btn ${selected ? 'selected' : ''}" data-time="${t}"
+                  ${isBooked ? 'disabled aria-disabled="true"' : ''}
+                  role="option" aria-selected="${selected}"
+                  aria-label="${t}${isBooked ? ' – Ocupado' : ' – Disponible'}">
+            ${t}${isBooked ? ' ⛔' : ''}
+          </button>`;
+      }).join('')}
+    </div>`;
+
+  timePanel.querySelectorAll('.time-btn:not(:disabled)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      timePanel.querySelectorAll('.time-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
+      btn.classList.add('selected');
+      btn.setAttribute('aria-selected', 'true');
+      appointmentForm.time = btn.dataset.time;
+      document.getElementById('btn-step-next').disabled = false;
+    });
   });
 }
 
@@ -996,8 +1310,8 @@ function renderAppointmentStep3() {
           <input type="number" id="f-paciente-edad" name="pacienteEdad"
                  placeholder="Ej: 8"
                  value="${escapeHtml(appointmentForm.pacienteEdad)}"
-                 min="2" max="20" aria-required="true">
-          <div class="hint">Entre 2 y 20 años</div>
+                 min="2" max="85" aria-required="true">
+          <div class="hint">Entre 2 y 85 años</div>
           <div class="form-error" id="err-paciente-edad" role="alert" aria-live="polite"></div>
         </div>
       </fieldset>
@@ -1042,8 +1356,8 @@ function renderAppointmentStep3() {
     if (!f.telefono.trim() || !isValidPhone(f.telefono)) { showError(inputs.telefono, 'err-telefono', 'Ingresa un teléfono válido (7-15 dígitos).'); valid = false; }
     if (!f.email.trim() || !isValidEmail(f.email)) { showError(inputs.email, 'err-email', 'Ingresa un correo electrónico válido.'); valid = false; }
     if (!f.pacienteNombre.trim()) { showError(inputs.pacienteNombre, 'err-paciente-nombre', 'Ingresa el nombre del paciente.'); valid = false; }
-    if (!f.pacienteEdad || parseInt(f.pacienteEdad) < 2 || parseInt(f.pacienteEdad) > 20) {
-      showError(inputs.pacienteEdad, 'err-paciente-edad', 'Ingresa una edad entre 2 y 20 años.');
+    if (!f.pacienteEdad || parseInt(f.pacienteEdad) < 2 || parseInt(f.pacienteEdad) > 85) {
+      showError(inputs.pacienteEdad, 'err-paciente-edad', 'Ingresa una edad entre 2 y 85 años.');
       valid = false;
     }
     return valid;
@@ -1092,12 +1406,16 @@ function renderAppointmentStep4() {
         <div class="hint">Máximo 600 caracteres. Toda la información es confidencial.</div>
       </div>
 
+      ${reminderFieldsHTML({ reminderOffset: appointmentForm.reminderOffset, reminderSound: appointmentForm.reminderSound, kindLabel: 'cita' }, 'app-rem')}
+
       <div class="form-nav">
         <button class="btn btn-secondary" id="btn-step-prev">← Anterior</button>
-        <button class="btn btn-primary" id="btn-step-submit">✓ Confirmar en Mi Agenda</button>
+        <button class="btn btn-primary" id="btn-step-submit">Siguiente: Aviso y Revisión →</button>
       </div>
     </div>
   `;
+
+  bindReminderControls('app-rem');
 
   const selectMotivo = document.getElementById('f-motivo-select');
   const textareaDetalle = document.getElementById('f-motivo-detalle');
@@ -1118,8 +1436,86 @@ function renderAppointmentStep4() {
       selectMotivo.focus();
       return;
     }
-    submitAppointment();
+    Object.assign(appointmentForm, readReminderSelection('app-rem'));
+    renderAppointmentStep5();
   });
+}
+
+/** Paso 5: revisar y editar la cita antes de confirmar */
+function renderAppointmentStep5() {
+  const el = document.getElementById('form-step-content');
+  if (!el) return;
+  updateSteps(5);
+  const prof = getProfessional(appointmentForm.professionalId);
+
+  const reminderLabel = (appointmentForm.reminderOffset === null || appointmentForm.reminderOffset === undefined)
+    ? 'No avisar'
+    : `Te aviso ${getReminderOffsetLabel(appointmentForm.reminderOffset).toLowerCase()}`;
+
+  el.innerHTML = `
+    <div class="form-card">
+      <h2>5. Revisa y Confirma tu Cita</h2>
+      <p class="form-subtitle">Verifica los datos antes de confirmar. Puedes editar cualquier campo con los botones "Editar".</p>
+
+      <div class="review-details" role="list">
+        <div class="review-row" role="listitem">
+          <span class="review-label">👨‍⚕️ Profesional</span>
+          <span class="review-value">${escapeHtml(prof.nombre)} (${escapeHtml(prof.especialidad)})</span>
+          <button type="button" class="btn-link-edit" data-goto="1">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
+          <span class="review-label">📅 Fecha y Hora</span>
+          <span class="review-value">${formatDate(appointmentForm.date)} a las ${appointmentForm.time}</span>
+          <button type="button" class="btn-link-edit" data-goto="2">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
+          <span class="review-label">🧒 Paciente</span>
+          <span class="review-value">${escapeHtml(appointmentForm.pacienteNombre)} (${appointmentForm.pacienteEdad} años)</span>
+          <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
+          <span class="review-label">👨‍👩‍👦 Tutor y contacto</span>
+          <span class="review-value">${escapeHtml(appointmentForm.tutorNombre)} · ${escapeHtml(appointmentForm.telefono)} · ${escapeHtml(appointmentForm.email)}</span>
+          <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
+          <span class="review-label">📝 Motivo</span>
+          <span class="review-value">${escapeHtml(appointmentForm.motivo)}${appointmentForm.motivoDetalle ? ' — ' + escapeHtml(appointmentForm.motivoDetalle) : ''}</span>
+          <button type="button" class="btn-link-edit" data-goto="4">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
+          <span class="review-label">🔔 Aviso</span>
+          <span class="review-value">${reminderLabel}</span>
+          <button type="button" class="btn-link-edit" data-goto="4">✏️ Editar</button>
+        </div>
+      </div>
+
+      <div style="background:var(--teal-lighter);border:1px solid var(--teal-light);border-radius:var(--radius-sm);padding:12px 16px;margin-top:16px">
+        <p style="font-size:0.85rem;color:var(--teal-darker);line-height:1.5">
+          💬 Al confirmar se guardará la cita en <strong>Mi Agenda</strong> y el tutor en <strong>Mi Directorio</strong>. Después podrás
+          <strong>enviar la confirmación por WhatsApp</strong> con los datos que acabas de revisar.
+        </p>
+      </div>
+
+      <div class="form-nav">
+        <button class="btn btn-secondary" id="btn-step-prev">← Anterior</button>
+        <button class="btn btn-primary" id="btn-step-confirm">✓ Confirmar Cita</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelectorAll('.btn-link-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const step = parseInt(btn.dataset.goto);
+      if (step === 1) renderAppointmentStep1();
+      else if (step === 2) renderAppointmentStep2();
+      else if (step === 3) renderAppointmentStep3();
+      else if (step === 4) renderAppointmentStep4();
+    });
+  });
+
+  document.getElementById('btn-step-prev').addEventListener('click', renderAppointmentStep4);
+  document.getElementById('btn-step-confirm').addEventListener('click', submitAppointment);
 }
 
 function submitAppointment() {
@@ -1139,9 +1535,16 @@ function submitAppointment() {
     email: appointmentForm.email.trim(),
     motivo: appointmentForm.motivo,
     motivoDetalle: (appointmentForm.motivoDetalle || '').trim(),
+    reminderOffset: appointmentForm.reminderOffset,
+    reminderSound: appointmentForm.reminderSound,
     estado: 'confirmada',
     createdAt: new Date().toISOString()
   };
+
+  // Si la cita tiene aviso, pedir autorización de notificaciones (clic = gesto válido)
+  if (appointment.reminderOffset !== null && appointment.reminderOffset !== undefined) {
+    ensureNotificationPermission();
+  }
 
   // 1. Guardar Cita en Mi Agenda
   state.appointments.push(appointment);
@@ -1172,7 +1575,8 @@ function submitAppointment() {
     saveContacts();
   }
 
-  // 3. Crear recordatorio en Mis Tareas
+  // 3. Crear la cita como tarea en Mis Tareas (SIN aviso propio: el aviso lo
+  //    gestiona la propia cita en Mi Agenda, así no se duplican timbres)
   const autoTask = {
     id: generateId(),
     date: appointment.fecha,
@@ -1181,6 +1585,8 @@ function submitAppointment() {
     priority: 'alta',
     category: 'cita',
     description: `Paciente: ${appointment.pacienteNombre}. Tutor: ${appointment.tutorNombre}.`,
+    reminderOffset: null,
+    reminderSound: 'timbre',
     done: false,
     createdAt: new Date().toISOString()
   };
@@ -1211,13 +1617,13 @@ function submitAppointment() {
 
       <div class="whatsapp-confirm-block">
         <p class="whatsapp-confirm-title">💬 Confirmación por WhatsApp</p>
-        <p class="whatsapp-confirm-hint">Estamos enviando el mensaje de confirmación al WhatsApp de ${escapeHtml(appointment.tutorNombre)} (Tel: ${escapeHtml(appointment.telefono)}). Si no llega automáticamente, puedes reenviarlo con el botón.</p>
+        <p class="whatsapp-confirm-hint">Revisaste tus datos y la cita está guardada. Envía la confirmación al WhatsApp de ${escapeHtml(appointment.tutorNombre)} (Tel: ${escapeHtml(appointment.telefono)}) desde aquí:</p>
         <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
           <button type="button" id="btn-send-whatsapp" class="btn btn-whatsapp">
             <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
               <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
             </svg>
-            Reenviar por WhatsApp
+            Enviar Confirmación por WhatsApp
           </button>
           <button type="button" id="btn-copy-whatsapp-msg" class="btn btn-outline">📋 Copiar mensaje</button>
         </div>
@@ -1226,14 +1632,15 @@ function submitAppointment() {
       <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
         <a href="#/directorio" class="btn btn-primary" data-nav>Ver en Mi Directorio 👥</a>
         <a href="#/historial" class="btn btn-outline" data-nav>Ver Mi Historial 📜</a>
-        <a href="#/pagos" class="btn btn-secondary" data-nav>Formas de Pago 💳</a>
+        <a href="#/agendar" class="btn btn-secondary" data-nav>Agendar otra Cita 📅</a>
       </div>
     </div>
   `;
 
-  // Reenvío manual (intenta automático y usa wa.me como respaldo)
+  // Envío MANUAL: el usuario revisó la cita en el paso 5 y decide cuándo
+  // enviar la confirmación (abre WhatsApp con el mensaje ya armado).
   document.getElementById('btn-send-whatsapp').addEventListener('click', () => {
-    notifyWhatsAppConfirmation(appointment);
+    openWhatsAppConfirmation(appointment);
   });
 
   // Copiar el mensaje al portapapeles como alternativa de envío
@@ -1243,9 +1650,6 @@ function submitAppointment() {
     btn.textContent = '✓ Copiado';
     setTimeout(() => { btn.textContent = '📋 Copiar mensaje'; }, 2500);
   });
-
-  // Envío automático del mensaje de confirmación al confirmar la cita
-  notifyWhatsAppConfirmation(appointment);
 }
 
 /* =====================================================================
@@ -1346,6 +1750,8 @@ async function notifyWhatsAppConfirmation(appointment) {
 /* =====================================================================
    10. VISTA 3: MIS TAREAS (CALENDARIO Y GESTIÓN CON AGREGAR Y ELIMINAR)
    ===================================================================== */
+let tasksViewMode = 'dia'; // 'dia' | 'semana' | 'mes' | 'horas'
+
 function renderTasks(el) {
   loadTasks();
 
@@ -1355,23 +1761,257 @@ function renderTasks(el) {
       <p>Organiza compromisos, ejercicios terapéuticos y recordatorios</p>
     </div>
     <div class="container">
-      <hr class="section-divider" aria-hidden="true">
-      <div class="tasks-layout" id="tasks-layout">
-        <!-- Calendario Mensual -->
-        <section aria-labelledby="calendar-title">
-          <div class="calendar-widget" id="calendar-widget"></div>
-        </section>
-
-        <!-- Panel de Tareas -->
-        <section aria-labelledby="tasks-title">
-          <div class="tasks-panel" id="tasks-panel"></div>
-        </section>
+      <div class="view-tabs" role="tablist" aria-label="Vista de tareas">
+        ${[
+          ['dia', '📅 Día'],
+          ['semana', '🗓️ Semana'],
+          ['mes', '📆 Mes'],
+          ['horas', '🕐 Horas']
+        ].map(([v, label]) => `
+          <button type="button" class="view-tab ${tasksViewMode === v ? 'active' : ''}" data-tview="${v}"
+                  role="tab" aria-selected="${tasksViewMode === v}">${label}</button>
+        `).join('')}
       </div>
+      <div id="tasks-view-root"></div>
     </div>
   `;
 
-  buildCalendar();
+  el.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      tasksViewMode = tab.dataset.tview;
+      el.querySelectorAll('.view-tab').forEach(t => {
+        const active = t === tab;
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', String(active));
+      });
+      refreshTaskViews();
+    });
+  });
+
+  refreshTaskViews();
+}
+
+/** Refresca la vista de tareas según el modo activo */
+function refreshTaskViews() {
+  const root = document.getElementById('tasks-view-root');
+  if (!root) return;
+  loadTasks();
+
+  if (tasksViewMode === 'mes') {
+    root.innerHTML = `
+      <div class="tasks-layout">
+        <section aria-labelledby="calendar-title">
+          <div class="calendar-widget" id="calendar-widget"></div>
+        </section>
+        <section aria-labelledby="tasks-title">
+          <div class="tasks-panel" id="tasks-panel"></div>
+        </section>
+      </div>`;
+    buildCalendar();
+    buildTasksPanel();
+    return;
+  }
+
+  if (tasksViewMode === 'semana') {
+    buildWeekView(root);
+    return;
+  }
+
+  if (tasksViewMode === 'horas') {
+    buildHoursView(root);
+    return;
+  }
+
+  // 'dia'
+  buildDayView(root);
+}
+
+/** Navegador de día con anterior / Hoy / siguiente */
+function dayNavHTML(label, prefix) {
+  return `
+    <div class="task-view-nav">
+      <button type="button" class="btn btn-outline btn-sm" id="${prefix}-prev" aria-label="Anterior">‹</button>
+      <strong>${label}</strong>
+      <button type="button" class="btn btn-outline btn-sm" id="${prefix}-next" aria-label="Siguiente">›</button>
+      <button type="button" class="btn btn-sm" id="${prefix}-today" style="margin-left:8px">Hoy</button>
+    </div>
+  `;
+}
+
+/** Vista por DÍA: lista de tareas del día seleccionado (+ nueva tarea) */
+function buildDayView(root) {
+  const { selectedDate } = calendarState;
+  const dateObj = new Date(selectedDate + 'T12:00:00');
+  const label = dateObj.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  root.innerHTML = `
+    ${dayNavHTML(label.charAt(0).toUpperCase() + label.slice(1), 'day')}
+    <div class="tasks-layout">
+      <div class="tasks-panel" id="tasks-panel"></div>
+    </div>
+  `;
+
+  document.getElementById('day-prev').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(selectedDate, -1);
+    refreshTaskViews();
+  });
+  document.getElementById('day-next').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(selectedDate, 1);
+    refreshTaskViews();
+  });
+  document.getElementById('day-today').addEventListener('click', () => {
+    calendarState.selectedDate = new Date().toISOString().split('T')[0];
+    refreshTaskViews();
+  });
+
   buildTasksPanel();
+}
+
+/** Vista por SEMANA: 7 columnas con las tareas de cada día */
+function buildWeekView(root) {
+  const { selectedDate } = calendarState;
+  const monday = startOfWeek(new Date(selectedDate + 'T12:00:00'));
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    days.push({ d, ds: d.toISOString().split('T')[0] });
+  }
+
+  const weekLabel = `Semana del ${formatDateShort(monday)} al ${formatDateShort(addDays(monday, 6))}`;
+
+  root.innerHTML = `
+    ${dayNavHTML(weekLabel, 'wk')}
+    <div class="week-view-grid" id="week-view-grid">
+      ${days.map(({ d, ds }) => {
+        const tasks = state.tasks.filter(t => t.date === ds);
+        const isToday = ds === new Date().toISOString().split('T')[0];
+        return `
+          <div class="week-col ${isToday ? 'today' : ''}" data-date="${ds}">
+            <div class="week-col-head" role="button" tabindex="0" aria-label="Ver día ${formatDate(d)}">
+              <strong>${formatDateShort(d)}</strong>
+              <span class="week-col-count">${tasks.length} tarea(s)</span>
+            </div>
+            <div class="week-col-body task-list" role="list">
+              ${tasks.length === 0
+                ? `<div class="week-col-empty">Sin tareas</div>`
+                : tasks.map(t => buildTaskItemHTML(t)).join('')}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  document.getElementById('wk-prev').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(monday.toISOString().split('T')[0], -1);
+    refreshTaskViews();
+  });
+  document.getElementById('wk-next').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(monday.toISOString().split('T')[0], 7);
+    refreshTaskViews();
+  });
+  document.getElementById('wk-today').addEventListener('click', () => {
+    calendarState.selectedDate = new Date().toISOString().split('T')[0];
+    refreshTaskViews();
+  });
+
+  root.querySelectorAll('.week-col-head').forEach(head => {
+    const go = () => {
+      calendarState.selectedDate = head.closest('.week-col').dataset.date;
+      tasksViewMode = 'dia';
+      root.closest('.container')?.querySelectorAll('.view-tab').forEach(t => {
+        const active = t.dataset.tview === 'dia';
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', String(active));
+      });
+      refreshTaskViews();
+    };
+    head.addEventListener('click', go);
+    head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
+
+  root.querySelectorAll('.week-col-body').forEach(col => attachTaskEvents(col));
+}
+
+/** Añadir tarea desde semana/horas llevando al día elegido */
+function addTaskInto(dateStr) {
+  calendarState.selectedDate = dateStr;
+  tasksViewMode = 'dia';
+  const root = document.getElementById('tasks-view-root');
+  root.closest('.container')?.querySelectorAll('.view-tab').forEach(t => {
+    const active = t.dataset.tview === 'dia';
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
+  refreshTaskViews();
+  requestAnimationFrame(() => {
+    document.getElementById('toggle-add-task')?.click();
+  });
+}
+
+/** Vista por HORAS: línea de tiempo del día seleccionado */
+function buildHoursView(root) {
+  const { selectedDate } = calendarState;
+  const dateObj = new Date(selectedDate + 'T12:00:00');
+  const label = dateObj.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const dayTasks = state.tasks.filter(t => t.date === selectedDate);
+  const noTime = dayTasks.filter(t => !t.time);
+  const withTime = dayTasks.filter(t => t.time);
+
+  const slots = [];
+  for (let h = 0; h < 24; h++) {
+    slots.push(`${String(h).padStart(2, '0')}:00`, `${String(h).padStart(2, '0')}:30`);
+  }
+
+  const tasksBySlot = slots.reduce((acc, slot) => { acc[slot] = []; return acc; }, {});
+  withTime.forEach(t => {
+    const key = Object.prototype.hasOwnProperty.call(tasksBySlot, t.time) ? t.time : null;
+    if (key) tasksBySlot[key].push(t);
+  });
+
+  root.innerHTML = `
+    ${dayNavHTML(label.charAt(0).toUpperCase() + label.slice(1), 'hr')}
+    <div class="hours-actions">
+      <button type="button" class="btn btn-sm" id="hr-add" style="border-radius:999px">+ Nueva Tarea</button>
+    </div>
+    <div class="hours-list" role="list">
+      ${noTime.length > 0 ? `
+        <div class="hours-slot hours-slot--notime" role="listitem">
+          <span class="hours-slot-time">Sin hora</span>
+          <div class="task-list">${noTime.map(t => buildTaskItemHTML(t)).join('')}</div>
+        </div>` : ''}
+      ${slots.map(slot => `
+        <div class="hours-slot ${tasksBySlot[slot].length ? 'has-tasks' : ''}" role="listitem">
+          <span class="hours-slot-time">${slot}</span>
+          <div class="task-list">
+            ${tasksBySlot[slot].length ? tasksBySlot[slot].map(t => buildTaskItemHTML(t)).join('') : ''}
+          </div>
+        </div>`).join('')}
+    </div>
+  `;
+
+  document.getElementById('hr-prev').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(selectedDate, -1);
+    refreshTaskViews();
+  });
+  document.getElementById('hr-next').addEventListener('click', () => {
+    calendarState.selectedDate = shiftISODate(selectedDate, 1);
+    refreshTaskViews();
+  });
+  document.getElementById('hr-today').addEventListener('click', () => {
+    calendarState.selectedDate = new Date().toISOString().split('T')[0];
+    refreshTaskViews();
+  });
+  document.getElementById('hr-add').addEventListener('click', () => addTaskInto(selectedDate));
+
+  root.querySelectorAll('.task-list').forEach(list => attachTaskEvents(list));
+}
+
+/** Desplaza una fecha ISO en días (resultado como 'yyyy-mm-dd') */
+function shiftISODate(dateStr, deltaDays) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + deltaDays);
+  return d.toISOString().split('T')[0];
 }
 
 function buildCalendar() {
@@ -1456,14 +2096,14 @@ function buildCalendar() {
     calendarState.month = now.getMonth();
     calendarState.selectedDate = now.toISOString().split('T')[0];
     buildCalendar();
-    buildTasksPanel();
+    refreshTaskViews();
   });
 
   widget.querySelectorAll('.cal-day[data-date]').forEach(btn => {
     btn.addEventListener('click', () => {
       calendarState.selectedDate = btn.dataset.date;
       buildCalendar();
-      buildTasksPanel();
+      refreshTaskViews();
     });
   });
 }
@@ -1536,6 +2176,8 @@ function buildTasksPanel() {
           <input type="text" id="task-desc-input" name="taskDesc" placeholder="Observaciones o notas" maxlength="200">
         </div>
 
+        ${reminderFieldsHTML({ reminderOffset: null, reminderSound: 'timbre', kindLabel: 'tarea' }, 'task-rem')}
+
         <div style="display:flex;gap:8px;margin-top:6px">
           <button type="submit" class="btn btn-green btn-sm" style="flex:1">✓ Guardar Tarea</button>
           <button type="button" class="btn btn-secondary btn-sm" id="cancel-add-task">Cancelar</button>
@@ -1556,6 +2198,8 @@ function buildTasksPanel() {
 
   const toggleBtn = panel.querySelector('#toggle-add-task');
   const addForm   = panel.querySelector('#add-task-form');
+
+  bindReminderControls('task-rem');
 
   toggleBtn.addEventListener('click', () => {
     const isOpen = !addForm.classList.contains('hidden');
@@ -1594,17 +2238,23 @@ function buildTasksPanel() {
       description: (descInput.value || '').trim(),
       priority,
       category,
+      reminderOffset: null,
+      reminderSound: 'timbre',
       done: false,
       createdAt: new Date().toISOString()
     };
+    Object.assign(newTask, readReminderSelection('task-rem'));
+
+    if (newTask.reminderOffset !== null && newTask.reminderOffset !== undefined) {
+      ensureNotificationPermission();
+    }
 
     state.tasks.push(newTask);
     saveTasks();
     showToast('✓ Tarea agregada con éxito a Mis Tareas.', 'success');
 
     calendarState.selectedDate = newTask.date;
-    buildCalendar();
-    buildTasksPanel();
+    refreshTaskViews();
   });
 
   attachTaskEvents(panel);
@@ -1628,6 +2278,7 @@ function buildTaskItemHTML(t) {
         </div>
       </div>
       <div class="task-actions">
+        <button class="task-delete-btn" data-action="edit" data-id="${escapeHtml(t.id)}" title="Editar o reagendar tarea">✏️</button>
         <button class="task-delete-btn" data-action="delete" data-id="${escapeHtml(t.id)}" title="Eliminar tarea">✕</button>
       </div>
     </div>
@@ -1643,10 +2294,17 @@ function attachTaskEvents(panel) {
         task.done = !task.done;
         if (task.done) task.completedAt = new Date().toISOString();
         saveTasks();
-        buildCalendar();
-        buildTasksPanel();
+        refreshTaskViews();
         showToast(task.done ? '✓ Tarea completada.' : 'Tarea reactivada.', task.done ? 'success' : 'info');
       }
+    });
+  });
+
+  panel.querySelectorAll('[data-action="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const task = state.tasks.find(t => t.id === id);
+      if (task) openTaskEditModal(task, refreshTaskViews);
     });
   });
 
@@ -1656,11 +2314,113 @@ function attachTaskEvents(panel) {
       if (confirm('¿Eliminar esta tarea de Mis Tareas?')) {
         state.tasks = state.tasks.filter(t => t.id !== id);
         saveTasks();
-        buildCalendar();
-        buildTasksPanel();
+        refreshTaskViews();
         showToast('Tarea eliminada de Mis Tareas.', 'info');
       }
     });
+  });
+}
+
+/** Modal para editar o reagendar una tarea existente (fecha, hora, aviso propio) */
+function openTaskEditModal(task, onDone) {
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  openModal(
+    '✏️ Editar / Reagendar Tarea',
+    `
+    <div class="form-group">
+      <label for="t-edit-title">Título de la tarea <span style="color:var(--danger)">*</span></label>
+      <input type="text" id="t-edit-title" value="${escapeHtml(task.title)}" maxlength="120">
+    </div>
+
+    <div class="form-row-inline">
+      <div>
+        <label for="t-edit-date">Fecha</label>
+        <input type="date" id="t-edit-date" value="${escapeHtml(task.date || todayStr)}">
+      </div>
+      <div>
+        <label for="t-edit-time">Hora (opcional)</label>
+        <input type="time" id="t-edit-time" value="${escapeHtml(task.time || '')}">
+      </div>
+    </div>
+
+    <div class="form-row-inline">
+      <div>
+        <label for="t-edit-priority">Prioridad</label>
+        <select id="t-edit-priority">
+          <option value="baja" ${task.priority === 'baja' ? 'selected' : ''}>🟢 Baja</option>
+          <option value="media" ${task.priority === 'media' ? 'selected' : ''}>🟡 Media</option>
+          <option value="alta" ${task.priority === 'alta' ? 'selected' : ''}>🔴 Alta</option>
+        </select>
+      </div>
+      <div>
+        <label for="t-edit-category">Categoría</label>
+        <select id="t-edit-category">
+          <option value="cita" ${task.category === 'cita' ? 'selected' : ''}>📅 Cita Terapéutica</option>
+          <option value="medicacion" ${task.category === 'medicacion' ? 'selected' : ''}>💊 Hábito / Medicación</option>
+          <option value="tarea" ${task.category === 'tarea' ? 'selected' : ''}>📚 Tarea Escolar</option>
+          <option value="ejercicio" ${task.category === 'ejercicio' ? 'selected' : ''}>🎯 Ejercicio Emocional</option>
+          <option value="otro" ${task.category === 'otro' ? 'selected' : ''}>📌 General</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="t-edit-desc">Descripción breve</label>
+      <input type="text" id="t-edit-desc" value="${escapeHtml(task.description || '')}" maxlength="200">
+    </div>
+
+    ${reminderFieldsHTML({ reminderOffset: task.reminderOffset, reminderSound: task.reminderSound, kindLabel: 'tarea' }, 'task-edit-rem')}
+    `,
+    `
+    <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary btn-sm" id="btn-save-edit-task">Guardar Cambios</button>
+    `
+  );
+
+  bindReminderControls('task-edit-rem');
+
+  const titleInput = document.getElementById('t-edit-title');
+  titleInput.focus();
+
+  document.getElementById('btn-save-edit-task').addEventListener('click', () => {
+    const title = titleInput.value.trim();
+    if (!title) {
+      titleInput.focus();
+      showToast('Ingresa el título de la tarea.', 'error');
+      return;
+    }
+
+    const prevDate = task.date;
+    task.title = title;
+    task.date = document.getElementById('t-edit-date').value || task.date;
+    task.time = document.getElementById('t-edit-time').value || '';
+    task.priority = document.getElementById('t-edit-priority').value;
+    task.category = document.getElementById('t-edit-category').value;
+    task.description = document.getElementById('t-edit-desc').value.trim();
+    Object.assign(task, readReminderSelection('task-edit-rem'));
+
+    if (task.reminderOffset !== null && task.reminderOffset !== undefined) {
+      ensureNotificationPermission();
+    }
+
+    saveTasks();
+
+    // Si es la tarea-recordatorio de una cita, mantén actualizada la cita en Mi Agenda
+    if (task.category === 'cita' && task.date && prevDate !== task.date) {
+      const linked = state.appointments.find(a =>
+        a.professionalName && task.title.includes(a.professionalName) &&
+        a.fecha === prevDate && (a.hora === task.time || task.time === a.hora));
+      if (linked) {
+        linked.fecha = task.date;
+        if (task.time) linked.hora = task.time;
+        saveAppointments();
+      }
+    }
+
+    closeModal();
+    showToast('✓ Tarea actualizada correctamente.', 'success');
+    if (onDone) onDone();
   });
 }
 
@@ -2126,157 +2886,451 @@ function renderDirectory(el) {
 }
 
 /* =====================================================================
-   13. VISTA 6: FORMAS DE PAGO (BANCOLOMBIA & NEQUI)
+   13. AVISOS Y RECORDATORIOS (NOTIFICACIONES CON TIMBRE EN EL TELÉFONO)
    ===================================================================== */
-function renderPayments(el) {
-  const bancolombiaCuenta = '123-456789-01';
-  const nequiNumero = '3001234567';
-  const titular = 'Centro Terapéutico Actitud & Bienestar';
 
-  el.innerHTML = `
-    <div class="page-header" role="banner">
-      <h1>Formas de Pago Autorizadas</h1>
-      <p>Cuentas oficiales para abonos de consultas psicológicas y talleres</p>
-    </div>
-    <div class="container">
-      <hr class="section-divider" aria-hidden="true">
+/** Antelaciones disponibles para cada aviso (en minutos) */
+const REMINDER_OPTIONS = [
+  { value: 0,    label: 'En el momento exacto' },
+  { value: 5,    label: '5 minutos antes' },
+  { value: 10,   label: '10 minutos antes' },
+  { value: 15,   label: '15 minutos antes' },
+  { value: 30,   label: '30 minutos antes' },
+  { value: 60,   label: '1 hora antes' },
+  { value: 120,  label: '2 horas antes' },
+  { value: 1440, label: 'Un día antes' }
+];
 
-      <!-- Tarjetas de pago Bancolombia & Nequi -->
-      <div class="payment-methods-grid">
-        <!-- Tarjeta Bancolombia -->
-        <article class="payment-card payment-card--bancolombia" aria-label="Datos de cuenta Bancolombia">
-          <div>
-            <div class="payment-badge-logo payment-badge-logo--bancolombia">
-              <span>🏦</span> BANCOLOMBIA
-            </div>
-            <h3>Cuenta de Ahorros</h3>
+/** Timbres predefinidos (generados con Web Audio API) */
+const REMINDER_SOUNDS = {
+  timbre:   { label: '🔔 Timbre clásico' },
+  campana:  { label: '🎐 Campana suave' },
+  marimba:  { label: '🎵 Marimba alegre' },
+  beep:     { label: '📢 Beep doble' },
+  silencio: { label: '🔇 Silencio' }
+};
 
-            <div class="payment-field">
-              <div class="payment-field-label">Titular de la cuenta</div>
-              <div style="font-weight:700;color:var(--dark);font-size:1.05rem">${escapeHtml(titular)}</div>
-            </div>
+/** Sonidos subidos por el usuario: { id: { nombre, dataUrl } } */
+const CUSTOM_SOUNDS_KEY = 'ayb_custom_sounds';
+const NOTIFIED_KEY = 'ayb_reminder_notified';
 
-            <div class="payment-field">
-              <div class="payment-field-label">Tipo de cuenta</div>
-              <div style="font-weight:600;color:var(--dark)">Ahorros</div>
-            </div>
+let customSounds = {};
 
-            <div class="copy-box">
-              <div>
-                <div class="payment-field-label">Número de cuenta</div>
-                <div class="payment-field-value" id="val-bancolombia">${bancolombiaCuenta}</div>
-              </div>
-              <button class="btn-copy" id="btn-copy-bancolombia" aria-label="Copiar número de cuenta Bancolombia">
-                📋 Copiar
-              </button>
-            </div>
-          </div>
+function loadCustomSounds() {
+  try { customSounds = JSON.parse(localStorage.getItem(CUSTOM_SOUNDS_KEY)) || {}; }
+  catch { customSounds = {}; }
+}
 
-          <p style="font-size:0.84rem;color:var(--gray);line-height:1.5">
-            ✓ Transferencias gratuitas desde cualquier cuenta Bancolombia o corresponsal bancario.
-          </p>
-        </article>
+function saveCustomSounds() {
+  try {
+    localStorage.setItem(CUSTOM_SOUNDS_KEY, JSON.stringify(customSounds));
+    return true;
+  } catch (e) {
+    console.error('Error al guardar el sonido personalizado:', e);
+    return false;
+  }
+}
 
-        <!-- Tarjeta Nequi -->
-        <article class="payment-card payment-card--nequi" aria-label="Datos de cuenta Nequi">
-          <div>
-            <div class="payment-badge-logo payment-badge-logo--nequi">
-              <span>📱</span> NEQUI
-            </div>
-            <h3>Transferencia Móvil Nequi</h3>
+/** Registro de avisos ya enviados (para no repetirlos) */
+function loadNotified() {
+  try { return JSON.parse(localStorage.getItem(NOTIFIED_KEY)) || {}; }
+  catch { return {}; }
+}
 
-            <div class="payment-field">
-              <div class="payment-field-label">Titular asociado</div>
-              <div style="font-weight:700;color:var(--dark);font-size:1.05rem">${escapeHtml(titular)}</div>
-            </div>
+function saveNotified(map) {
+  // Limpiar registros de hace más de 15 días
+  const cutoff = Date.now() - 15 * 24 * 60 * 60 * 1000;
+  Object.keys(map).forEach(k => { if (map[k] < cutoff) delete map[k]; });
+  try { localStorage.setItem(NOTIFIED_KEY, JSON.stringify(map)); }
+  catch (e) { console.error('Error al guardar avisos enviados:', e); }
+}
 
-            <div class="payment-field">
-              <div class="payment-field-label">Plataforma</div>
-              <div style="font-weight:600;color:var(--dark)">Nequi Colombia / Llaves PSE</div>
-            </div>
+function getReminderOffsetLabel(min) {
+  const opt = REMINDER_OPTIONS.find(o => o.value === min);
+  return opt ? opt.label : `${min} minutos antes`;
+}
 
-            <div class="copy-box">
-              <div>
-                <div class="payment-field-label">Número celular Nequi</div>
-                <div class="payment-field-value" id="val-nequi">${nequiNumero}</div>
-              </div>
-              <button class="btn-copy" id="btn-copy-nequi" aria-label="Copiar número de celular Nequi">
-                📋 Copiar
-              </button>
-            </div>
-          </div>
+/** Sonidos disponibles: predefinidos + los subidos por el usuario */
+function getAvailableSounds() {
+  const list = { ...REMINDER_SOUNDS };
+  Object.keys(customSounds).forEach(id => {
+    list[`custom:${id}`] = { label: `🎧 ${customSounds[id].nombre || 'Sonido propio'}` };
+  });
+  return list;
+}
 
-          <p style="font-size:0.84rem;color:var(--gray);line-height:1.5">
-            ✓ Envío directo e instantáneo desde la App Nequi o recarga por PSE.
-          </p>
-        </article>
+/** Etiquetas <option> de selección de timbre (predefinidos + subidos) */
+function soundOptionsHTML(selectedKey) {
+  return Object.keys(getAvailableSounds()).map(k => {
+    const selected = selectedKey === k;
+    return `<option value="${escapeHtml(k)}" ${selected ? 'selected' : ''}>${escapeHtml(getAvailableSounds()[k].label)}</option>`;
+  }).join('');
+}
+
+/** ¿El navegador admite notificaciones del sistema? */
+function isNotificationSupported() {
+  return 'Notification' in window;
+}
+
+/** Solicita permiso de notificación (ideal llamarlo desde un clic) */
+function ensureNotificationPermission() {
+  if (!isNotificationSupported()) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission !== 'denied' && typeof Notification.requestPermission === 'function') {
+    Notification.requestPermission().catch(() => {});
+  }
+  return Notification.permission === 'granted';
+}
+
+/** -- Reproducción de sonidos (Web Audio API + audio subido) -- */
+let _reminderAudioCtx = null;
+
+function getAudioCtx() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  _reminderAudioCtx = _reminderAudioCtx || new AudioCtx();
+  if (_reminderAudioCtx.state === 'suspended') _reminderAudioCtx.resume();
+  return _reminderAudioCtx;
+}
+
+function tone(ctx, freq, start, dur, vol = 0.8) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(vol, start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  osc.start(start);
+  osc.stop(start + dur + 0.05);
+}
+
+/** Resuelve el sonido personalizado de una clave tipo "custom:id" */
+function resolveCustomSound(key) {
+  if (typeof key === 'string' && key.startsWith('custom:')) {
+    return customSounds[key.slice(7)] || null;
+  }
+  return null;
+}
+
+/** Reproduce cualquier sonido: predefinido, "silencio" o subido por el usuario */
+function playSoundByKey(key, customDataUrl) {
+  try {
+    if (!key || key === 'silencio') return;
+
+    // Sonido propio subido por el usuario
+    if (typeof key === 'string' && key.startsWith('custom:')) {
+      const dataUrl = customDataUrl || resolveCustomSound(key)?.dataUrl;
+      if (dataUrl) {
+        const audio = new Audio(dataUrl);
+        audio.play().catch(() => {});
+      }
+      return;
+    }
+
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    switch (key) {
+      case 'campana':
+        tone(ctx, 1046.5, now, 1.1);            // C6
+        tone(ctx, 783.99, now + 0.28, 1.1);     // G5
+        tone(ctx, 659.25, now + 0.56, 1.2);     // E5
+        break;
+      case 'marimba':
+        tone(ctx, 783.99, now, 0.22, 0.6);      // G5
+        tone(ctx, 1046.5, now + 0.14, 0.22, 0.6); // C6
+        tone(ctx, 1318.51, now + 0.28, 0.3, 0.5); // E6
+        break;
+      case 'beep':
+        tone(ctx, 880, now, 0.18, 0.5);
+        tone(ctx, 880, now + 0.28, 0.18, 0.5);
+        break;
+      case 'timbre':
+      default:
+        tone(ctx, 659.25, now, 0.9);            // E5
+        tone(ctx, 523.25, now + 0.35, 0.9);     // C5
+        break;
+    }
+  } catch (e) {
+    console.warn('No se pudo reproducir el sonido:', e);
+  }
+}
+
+/** Desbloquea el audio del móvil con el primer toque/tecla del usuario.
+ *  Sin esto, el AudioContext queda 'suspended' en iOS/Android y la alarma
+ *  no emite sonido aunque el temporizador funcione. */
+function unlockAudioOnGesture() {
+  const warm = () => { getAudioCtx(); };
+  document.addEventListener('pointerdown', warm);
+  document.addEventListener('keydown', warm);
+  document.addEventListener('touchstart', warm);
+}
+
+/** Alarma visible dentro de la app (funciona aunque las notificaciones
+ *  del sistema estén bloqueadas). Se reemplaza si hay varias a la vez. */
+function openAlarmOverlay(title, body) {
+  const existing = document.getElementById('alarm-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'alarm-overlay';
+  overlay.className = 'alarm-overlay';
+  overlay.setAttribute('role', 'alertdialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'alarm-title');
+  overlay.innerHTML = `
+    <div class="alarm-card">
+      <div class="alarm-icon" aria-hidden="true">🔔</div>
+      <h2 id="alarm-title">${escapeHtml(title)}</h2>
+      <div class="alarm-body">${escapeHtml(body)}</div>
+      <button type="button" class="btn btn-primary" id="alarm-ok">✓ Entendido</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const ok = overlay.querySelector('#alarm-ok');
+  ok.focus();
+  ok.addEventListener('click', () => overlay.remove());
+
+  showToast(`🔔 ${body}`, 'info');
+}
+
+/** Lanza el aviso: alarma visible + notificación del sistema + timbre */
+function fireReminder(item) {
+  const isAppt = item.kind === 'appointment';
+  const title = isAppt ? '🔔 Cita próxima' : '🔔 Tarea próxima';
+  const dayLabel = item.fecha ? formatDateShort(item.fecha) : '';
+  const body = isAppt
+    ? `Cita: ${item.pacienteNombre} · ${item.professionalName} · ${dayLabel} a las ${item.hora}`
+    : `${item.title} · ${dayLabel}${item.time ? ' a las ' + item.time : ''}`;
+
+  // Vibración en móviles (se usa junto con el sonido)
+  if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
+
+  openAlarmOverlay(title, body);
+
+  if (isNotificationSupported() && Notification.permission === 'granted') {
+    try {
+      const notification = new Notification(title, {
+        body,
+        icon: 'img/logo/LOGO ACTITUD Y BIENESTAR SIN FONDO.png',
+        tag: item.key,
+        vibrate: [120, 80, 120]
+      });
+      notification.onclick = () => {
+        window.focus();
+        window.location.hash = isAppt ? '#/agendar' : '#/tareas';
+        notification.close();
+      };
+    } catch (e) {
+      console.warn('No se pudo mostrar la notificación:', e);
+    }
+  }
+
+  // Sonido elegido para ESTA cita o tarea concreta
+  const custom = resolveCustomSound(item.reminderSound);
+  playSoundByKey(item.reminderSound || 'timbre', custom && custom.dataUrl);
+}
+
+/** Convierte fecha+hora (o por defecto 09:00) en un Date */
+function eventDateTime(item) {
+  if (!item.fecha) return null;
+  const time = item.hora ? item.hora : '09:00';
+  const d = new Date(item.fecha + 'T' + time + ':00');
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Revisa cada cita y tarea con SU PROPIO aviso (offset y timbre individuales) */
+function checkReminders() {
+  loadAppointments();
+  loadTasks();
+  loadCustomSounds();
+
+  const now = Date.now();
+  const notified = loadNotified();
+  let changed = false;
+
+  const items = [];
+
+  // Citas: solo las que tienen un AVIOS PROPIO configurado
+  state.appointments
+    .filter(a => a.estado !== 'cancelada' && a.reminderOffset !== null && a.reminderOffset !== undefined)
+    .forEach(a => items.push({
+      key: `app:${a.id}`,
+      kind: 'appointment',
+      fecha: a.fecha,
+      hora: a.hora,
+      pacienteNombre: a.pacienteNombre,
+      professionalName: a.professionalName,
+      reminderOffset: a.reminderOffset,
+      reminderSound: a.reminderSound
+    }));
+
+  // Tareas: pendientes, con fecha y hora, y con aviso propio
+  state.tasks
+    .filter(t => !t.done && t.date && t.time && t.reminderOffset !== null && t.reminderOffset !== undefined)
+    .forEach(t => items.push({
+      key: `task:${t.id}`,
+      kind: 'task',
+      fecha: t.date,
+      hora: t.time,
+      title: t.title,
+      reminderOffset: t.reminderOffset,
+      reminderSound: t.reminderSound
+    }));
+
+  const due = items.filter(item => {
+    const evt = eventDateTime(item);
+    if (!evt) return false;
+    const offsetMs = item.reminderOffset * 60 * 1000;
+    const windowStart = evt.getTime() - offsetMs;
+    if (now < windowStart || now > evt.getTime()) return false;
+    return !notified[item.key];
+  });
+
+  due.sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
+
+  due.forEach(item => {
+    notified[item.key] = Date.now();
+    changed = true;
+    fireReminder(item);
+  });
+
+  if (changed) saveNotified(notified);
+}
+
+let reminderInterval = null;
+
+/** Inicia la vigilancia periódica de avisos (cada 30 segundos).
+ *  Se protege con try/catch para que la alarma siga activa aunque la
+ *  revisión de una cita/tarea en particular falle. */
+function initReminderWatcher() {
+  loadCustomSounds();
+
+  const safeCheck = () => {
+    try { checkReminders(); } catch (e) { console.error('Error revisando avisos:', e); }
+  };
+
+  safeCheck();
+  if (reminderInterval) clearInterval(reminderInterval);
+  reminderInterval = setInterval(safeCheck, 30000);
+
+  // Revisar al volver a la pestaña (los temporizadores se pausan en segundo plano)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) safeCheck();
+  });
+}
+
+/** HTML de los campos de "aviso propio" (reutilizado en citas y tareas) */
+function reminderFieldsHTML(values = {}, prefix = 'rem') {
+  const hasOffset = values.reminderOffset !== null && values.reminderOffset !== undefined;
+  const currentOffset = hasOffset ? values.reminderOffset : null;
+  const currentSound = values.reminderSound || 'timbre';
+
+  const offsetOptions = [
+    `<option value="none" ${!hasOffset ? 'selected' : ''}>No avisar</option>`
+  ].concat(REMINDER_OPTIONS.map(o =>
+    `<option value="${o.value}" ${currentOffset === o.value ? 'selected' : ''}>${o.label}</option>`
+  )).join('');
+
+  return `
+    <fieldset class="reminder-fieldset">
+      <legend class="reminder-legend">🔔 Aviso para esta ${values.kindLabel || 'cita/tarea'}</legend>
+
+      <div class="form-row-inline">
+        <div>
+          <label for="${prefix}-offset">Avisar</label>
+          <select id="${prefix}-offset">
+            ${offsetOptions}
+          </select>
+        </div>
+        <div>
+          <label for="${prefix}-sound">Timbre / sonido</label>
+          <select id="${prefix}-sound">
+            ${soundOptionsHTML(currentSound)}
+          </select>
+        </div>
       </div>
 
-      <!-- Instrucciones de confirmación del pago -->
-      <div class="payment-steps-card">
-        <h2 style="font-size:1.25rem;font-weight:800;color:var(--dark)">¿Cómo reportar tu pago?</h2>
-        <div class="payment-steps-list">
-          <div class="payment-step-item">
-            <div class="payment-step-num">1</div>
-            <div>
-              <strong>Realiza la transferencia:</strong> Utiliza el número de cuenta de Bancolombia o el número de Nequi detallados arriba.
-            </div>
-          </div>
-          <div class="payment-step-item">
-            <div class="payment-step-num">2</div>
-            <div>
-              <strong>Guarda el comprobante:</strong> Toma una captura de pantalla o descarga el PDF con el número de aprobación de la transacción.
-            </div>
-          </div>
-          <div class="payment-step-item">
-            <div class="payment-step-num">3</div>
-            <div>
-              <strong>Envía el soporte vía WhatsApp:</strong> Comparte el comprobante al número de atención <strong>+57 301 234 5678</strong> indicando el nombre completo del paciente y la fecha de la cita.
-            </div>
-          </div>
-          <div class="payment-step-item">
-            <div class="payment-step-num">4</div>
-            <div>
-              <strong>Confirmación del espacio:</strong> Nuestro equipo validará el abono y te enviará el recordatorio formal para la sesión.
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top:24px;text-align:center">
-          <a href="https://wa.me/573106266100?text=Hola,%20adjunto%20comprobante%20de%20pago%20para%20la%20cita%20psicol%C3%B3gica"
-             target="_blank" rel="noopener noreferrer" class="btn btn-green" aria-label="Enviar comprobante por WhatsApp">
-            💬 Enviar Comprobante por WhatsApp (+57 310 626 6100)
-          </a>
-        </div>
+      <div class="reminder-actions">
+        <button type="button" class="btn btn-outline btn-sm" id="${prefix}-test">▶ Probar sonido</button>
+        <label class="btn btn-outline btn-sm" for="${prefix}-upload" style="margin:0;display:inline-flex;align-items:center;gap:6px">
+          🎧 Subir mi propio sonido
+        </label>
+        <input type="file" id="${prefix}-upload" accept="audio/*" style="display:none" aria-label="Subir un archivo de audio propio">
       </div>
-    </div>
+      <div class="hint" id="${prefix}-sound-hint">Elige si quieres que suene un timbre antes de esta cita/tarea. Puedes subir tu propio audio (máx. 800 KB).</div>
+    </fieldset>
   `;
+}
 
-  // Eventos para copiar al portapapeles
-  const btnBancolombia = document.getElementById('btn-copy-bancolombia');
-  const btnNequi = document.getElementById('btn-copy-nequi');
+/** Lee la selección actual de aviso de los campos generados */
+function readReminderSelection(prefix) {
+  const offsetEl = document.getElementById(`${prefix}-offset`);
+  const soundEl = document.getElementById(`${prefix}-sound`);
+  const rawOffset = offsetEl ? offsetEl.value : 'none';
+  const offset = rawOffset === 'none' || rawOffset === '' ? null : parseInt(rawOffset, 10);
+  return {
+    reminderOffset: offset,
+    reminderSound: (soundEl ? soundEl.value : 'timbre') || 'timbre'
+  };
+}
 
-  if (btnBancolombia) {
-    btnBancolombia.addEventListener('click', () => {
-      copyToClipboard(bancolombiaCuenta, 'Número de cuenta Bancolombia copiado: ' + bancolombiaCuenta);
-      btnBancolombia.textContent = '✓ Copiado';
-      btnBancolombia.classList.add('copied');
-      setTimeout(() => {
-        btnBancolombia.textContent = '📋 Copiar';
-        btnBancolombia.classList.remove('copied');
-      }, 2500);
+/** Pre-rellena los campos de aviso tras guardar/probar (por si se recarga) */
+function updateReminderFieldsFrom(prefix, values) {
+  const offsetEl = document.getElementById(`${prefix}-offset`);
+  const soundEl = document.getElementById(`${prefix}-sound`);
+  if (!offsetEl || !soundEl) return;
+  const hasOffset = values.reminderOffset !== null && values.reminderOffset !== undefined;
+  offsetEl.value = hasOffset ? String(values.reminderOffset) : 'none';
+  soundEl.innerHTML = soundOptionsHTML(values.reminderSound || 'timbre');
+  soundEl.value = values.reminderSound || 'timbre';
+}
+
+/** Conecta "Probar sonido" + "Subir audio" de un bloque de avisos */
+function bindReminderControls(prefix) {
+  const testBtn = document.getElementById(`${prefix}-test`);
+  const uploadInput = document.getElementById(`${prefix}-upload`);
+  const soundSel = document.getElementById(`${prefix}-sound`);
+
+  if (testBtn) {
+    testBtn.addEventListener('click', () => {
+      ensureNotificationPermission();
+      const key = soundSel ? soundSel.value : 'timbre';
+      const custom = resolveCustomSound(key);
+      playSoundByKey(key, custom && custom.dataUrl);
     });
   }
 
-  if (btnNequi) {
-    btnNequi.addEventListener('click', () => {
-      copyToClipboard(nequiNumero, 'Número de Nequi copiado: ' + nequiNumero);
-      btnNequi.textContent = '✓ Copiado';
-      btnNequi.classList.add('copied');
-      setTimeout(() => {
-        btnNequi.textContent = '📋 Copiar';
-        btnNequi.classList.remove('copied');
-      }, 2500);
+  if (uploadInput) {
+    uploadInput.addEventListener('change', () => {
+      const file = uploadInput.files && uploadInput.files[0];
+      if (!file) return;
+      if (!/^audio\//.test(file.type)) {
+        showToast('Por favor sube un archivo de audio válido.', 'error');
+        uploadInput.value = '';
+        return;
+      }
+      if (file.size > 800 * 1024) {
+        showToast('El audio supera los 800 KB. Sube uno más corto.', 'error');
+        uploadInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const id = generateId();
+        customSounds[id] = { nombre: file.name, dataUrl: reader.result };
+        if (!saveCustomSounds()) return;
+        if (soundSel) {
+          soundSel.innerHTML = soundOptionsHTML('custom:' + id);
+          soundSel.value = 'custom:' + id;
+        }
+        showToast('✓ Sonido subido y seleccionado como tu timbre.', 'success');
+      };
+      reader.readAsDataURL(file);
     });
   }
 }
@@ -2367,6 +3421,12 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAppointments();
   loadTasks();
   loadContacts();
+  loadCustomSounds();
+  // Desbloquear el audio en el primer toque/tecla (clave para iOS/Android)
+  unlockAudioOnGesture();
+  // Iniciar la alarma ANTES que cualquier render, para que no quede sin
+  // arrancar si ocurre un error al dibujar la ruta actual.
+  try { initReminderWatcher(); } catch (e) { console.error('Error iniciando avisos:', e); }
   initGlobalEvents();
-  router();
+  try { router(); } catch (e) { console.error('Error al renderizar la ruta:', e); }
 });

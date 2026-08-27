@@ -85,18 +85,8 @@ const appointmentController = {
             <li><strong>Servicio:</strong> ${service.nombre}</li>
             <li><strong>Fecha:</strong> ${fecha}</li>
             <li><strong>Hora:</strong> ${hora}</li>
-            <li><strong>Método de Pago:</strong> ${metodoPago}</li>
-            <li><strong>Abono:</strong> $${abonoMonto.toLocaleString()}</li>
           </ul>
-          
-          <p>Por favor realice el pago del abono del 30% para confirmar su cita.</p>
-          
-          <h3>Datos de Pago</h3>
-          <p><strong>Nequi:</strong> ${process.env.NEQUI_NUMBER}</p>
-          <p><strong>Cuenta de Ahorros Bancolombia:</strong> ${process.env.BANCOLOMBIA_ACCOUNT}</p>
-          <p><strong>Banco:</strong> ${process.env.BANK_NAME}</p>
-          <p><strong>A nombre de:</strong> ${process.env.ACCOUNT_HOLDER}</p>
-          
+
           <p>Gracias por confiar en <strong>NailArt Studio</strong>.</p>
         `
       };
@@ -132,48 +122,6 @@ const appointmentController = {
       res.json(appointment);
     } catch (error) {
       console.error('Error updating appointment status:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
-  },
-
-  // Update payment status
-  updatePaymentStatus: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { pagoEstado } = req.body;
-      
-      const appointment = await Appointment.updatePaymentStatus(id, pagoEstado);
-      
-      if (!appointment) {
-        return res.status(404).json({ message: 'Appointment not found' });
-      }
-      
-      res.json(appointment);
-    } catch (error) {
-      console.error('Error updating payment status:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
-  },
-
-  // Upload proof of payment
-  uploadProofOfPayment: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { comprobanteUrl } = req.body;
-      
-      if (!comprobanteUrl) {
-        return res.status(400).json({ message: 'Comprobante URL is required' });
-      }
-      
-      const appointment = await Appointment.updateWithProof(id, comprobanteUrl);
-      
-      if (!appointment) {
-        return res.status(404).json({ message: 'Appointment not found' });
-      }
-      
-      res.json(appointment);
-    } catch (error) {
-      console.error('Error uploading proof of payment:', error);
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   },

@@ -1141,51 +1141,6 @@ textarea {
 }
 
 /* =====================================================================
-   13. MÉTODOS DE PAGO
-   ===================================================================== */
-.payment-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.payment-card {
-  padding: 18px;
-  border: 2px solid var(--gray-lighter);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.payment-card:hover {
-  border-color: var(--teal);
-  background: var(--teal-lighter);
-}
-
-.payment-card.selected {
-  border-color: var(--teal);
-  background: var(--teal-light);
-  box-shadow: 0 0 0 4px rgba(43,171,176,0.1);
-}
-
-.payment-card h3 { font-size: 0.97rem; font-weight: 700; }
-.payment-card p { font-size: 0.84rem; color: var(--gray); margin-top: 4px; }
-
-.payment-info-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
-}
-
-.payment-method-card {
-  text-align: center;
-  padding: 28px;
-}
-
-.payment-method-card .pm-icon { font-size: 2.2rem; margin-bottom: 10px; }
-
-/* =====================================================================
    14. CONFIRMACIÓN DE CITA
    ===================================================================== */
 .confirmation-card {
@@ -2323,168 +2278,6 @@ a.contact-item:hover { color: var(--teal); }
 }
 
 /* =====================================================================
-   26. FORMAS DE PAGO (BANCOLOMBIA & NEQUI)
-   ===================================================================== */
-.payment-methods-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-  margin-bottom: 36px;
-}
-
-.payment-card {
-  background: var(--white);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  padding: 28px;
-  border: 2px solid transparent;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  transition: all var(--transition);
-}
-
-.payment-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
-}
-
-.payment-card--bancolombia {
-  border-color: #FDDA24;
-  background: linear-gradient(180deg, #FFFFFF 0%, #FFFDF2 100%);
-}
-
-.payment-card--nequi {
-  border-color: #E20074;
-  background: linear-gradient(180deg, #FFFFFF 0%, #FFF5F9 100%);
-}
-
-.payment-badge-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  font-weight: 800;
-  font-size: 0.9rem;
-  margin-bottom: 16px;
-  width: fit-content;
-}
-
-.payment-badge-logo--bancolombia {
-  background: #FDDA24;
-  color: #000;
-}
-
-.payment-badge-logo--nequi {
-  background: #200020;
-  color: #FF2686;
-}
-
-.payment-card h3 {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--dark);
-  margin-bottom: 12px;
-}
-
-.payment-field {
-  margin-bottom: 12px;
-}
-
-.payment-field-label {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--gray);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
-}
-
-.payment-field-value {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--dark);
-  font-family: monospace;
-}
-
-.copy-box {
-  background: var(--white);
-  border: 1.5px dashed var(--gray-lighter);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 14px 0 18px;
-}
-
-.btn-copy {
-  background: var(--teal);
-  color: var(--white);
-  font-size: 0.82rem;
-  font-weight: 700;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all var(--transition);
-  flex-shrink: 0;
-}
-
-.btn-copy:hover {
-  background: var(--teal-dark);
-  transform: scale(1.02);
-}
-
-.btn-copy.copied {
-  background: var(--green);
-}
-
-.payment-steps-card {
-  background: var(--white);
-  border-radius: var(--radius);
-  padding: 28px;
-  box-shadow: var(--shadow-card);
-  border: 1px solid var(--gray-lighter);
-}
-
-.payment-steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 16px;
-}
-
-.payment-step-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 0.92rem;
-  color: var(--gray);
-  line-height: 1.6;
-}
-
-.payment-step-num {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--teal);
-  color: var(--white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.85rem;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-/* =====================================================================
    27. FILTROS Y VISTA AVANZADA DE HISTORIAL
    ===================================================================== */
 .history-filters-bar {
@@ -2619,10 +2412,6 @@ a.contact-item:hover { color: var(--teal); }
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .payment-methods-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .btn-logout-icon {
     display: inline-flex;
   }
@@ -2632,5 +2421,510 @@ a.contact-item:hover { color: var(--teal); }
   .directory-grid {
     grid-template-columns: repeat(3, 1fr);
   }
+}
+
+/* =====================================================================
+   30. AVISOS Y RECORDATORIOS (CAMPANA + CONFIGURACIÓN)
+   ===================================================================== */
+
+/* Botón campana dentro de la navegación */
+.nav-link--bell {
+  color: var(--teal-darker);
+  background: var(--teal-lighter);
+  border-color: var(--teal-light);
+}
+
+.nav-link--bell:hover {
+  background: var(--teal-light);
+  border-color: var(--teal);
+  color: var(--teal-darker);
+}
+
+.nav-link--bell .bell-icon {
+  transition: transform var(--transition-fast);
+  line-height: 1;
+}
+
+.nav-link--bell:hover .bell-icon {
+  transform: rotate(-15deg) scale(1.2);
+}
+
+/* Texto de ayuda reutilizable (modal de avisos) */
+.hint {
+  font-size: 0.8rem;
+  color: var(--gray-light);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1024px) {
+  .nav-link--bell {
+    justify-content: flex-start;
+  }
+}
+
+/* =====================================================================
+   31. AVISOS POR CITA / TAREA (TIMBRE + SONIDO PROPIO)
+   ===================================================================== */
+
+.reminder-fieldset {
+  border: 1px dashed var(--teal-light);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  margin: 16px 0 8px;
+}
+
+.reminder-legend {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--teal-dark);
+  padding: 0 6px;
+}
+
+.reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.reminder-actions .hint {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* =====================================================================
+   32. SELECCIÓN DE FECHA POR DÍAS / SEMANAS / MESES (MI AGENDA)
+   ===================================================================== */
+
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.view-tab {
+  border: 1px solid var(--gray-medium);
+  background: var(--surface);
+  color: var(--gray);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.view-tab:hover {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+}
+
+.view-tab.active {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.week-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.week-card {
+  border: 1px solid var(--gray-medium);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.week-card.is-selected {
+  border-color: var(--teal);
+  background: var(--teal-lighter);
+}
+
+.week-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--teal-dark);
+  margin-bottom: 8px;
+}
+
+.week-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.date-chip {
+  border: 1px solid var(--gray-medium);
+  background: var(--surface);
+  color: var(--dark);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.date-chip:hover {
+  border-color: var(--teal);
+}
+
+.date-chip.selected {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.month-nav strong {
+  flex: 1;
+  text-align: center;
+  font-size: 0.95rem;
+  text-transform: capitalize;
+}
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.month-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+
+.month-cell.mth-head {
+  font-weight: 700;
+  font-size: 0.7rem;
+  color: var(--gray-light);
+  text-transform: uppercase;
+}
+
+.month-cell.mth-void {
+  visibility: hidden;
+}
+
+.month-cell.mth-day {
+  border: 1px solid var(--gray-medium);
+  background: var(--surface);
+  color: var(--dark);
+  cursor: pointer;
+}
+
+.month-cell.mth-day:hover:not(:disabled) {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+}
+
+.month-cell.mth-day.selected {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.month-cell.mth-day.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: var(--gray-bg);
+}
+
+/* =====================================================================
+   33. REVISIÓN Y EDICIÓN DE LA CITA (PASO 5)
+   ===================================================================== */
+
+.review-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-row {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--gray-medium);
+  border-radius: var(--radius-sm);
+}
+
+.review-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--gray);
+}
+
+.review-value {
+  font-size: 0.9rem;
+  color: var(--dark);
+  word-break: break-word;
+}
+
+.btn-link-edit {
+  border: none;
+  background: none;
+  color: var(--teal);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.btn-link-edit:hover {
+  background: var(--teal-lighter);
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  .review-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* =====================================================================
+   34. GESTIÓN DE CITAS PRÓXIMAS (REAGENDAR / CANCELAR)
+   ===================================================================== */
+
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--gray-medium);
+  margin: 18px 0;
+}
+
+.appt-manage {
+  margin-bottom: 22px;
+}
+
+.appt-manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appt-manage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-medium);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.appt-manage-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+  color: var(--dark);
+}
+
+.appt-manage-info span {
+  font-size: 0.8rem;
+  color: var(--gray);
+}
+
+.appt-manage-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* =====================================================================
+   35. VISTAS DE TAREAS (DÍA / SEMANA / MES / HORAS)
+   ===================================================================== */
+
+.task-view-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.task-view-nav strong {
+  flex: 1;
+  text-align: center;
+  font-size: 0.92rem;
+  text-transform: capitalize;
+}
+
+.week-view-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  min-width: 700px;
+}
+
+.week-col {
+  border: 1px solid var(--gray-medium);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.week-col.today {
+  border-color: var(--teal);
+  background: var(--teal-lighter);
+}
+
+.week-col-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-bottom: 1px solid var(--gray-medium);
+  cursor: pointer;
+}
+
+.week-col-head:hover {
+  background: var(--teal-lighter);
+}
+
+.week-col-count {
+  font-size: 0.72rem;
+  color: var(--gray-light);
+}
+
+.week-col-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 320px;
+}
+
+.week-col-empty {
+  font-size: 0.78rem;
+  color: var(--gray-light);
+  text-align: center;
+  padding: 14px 4px;
+}
+
+.hours-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.hours-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hours-slot {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 4px 8px;
+  border-bottom: 1px dashed var(--gray-medium);
+}
+
+.hours-slot.has-tasks {
+  background: var(--teal-lighter);
+  border-radius: var(--radius-sm);
+}
+
+.hours-slot-time {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--teal-dark);
+  padding-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hours-slot--notime .hours-slot-time {
+  color: var(--gray);
+}
+
+/* =====================================================================
+   36. ALARMA DE AVISOS (OVERLAY DENTRO DE LA APP)
+   ===================================================================== */
+
+.alarm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(3px);
+  animation: alarmFadeIn 0.25s ease-out;
+}
+
+.alarm-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  border: 2px solid var(--teal);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  padding: 28px 24px;
+  max-width: 400px;
+  width: calc(100% - 40px);
+  text-align: center;
+}
+
+.alarm-icon {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 10px;
+  animation: alarmShake 0.6s ease-in-out infinite;
+}
+
+.alarm-card h2 {
+  font-size: 1.15rem;
+  color: var(--dark);
+  margin: 0 0 8px;
+}
+
+.alarm-body {
+  font-size: 0.95rem;
+  color: var(--gray);
+  line-height: 1.6;
+  margin-bottom: 18px;
+  white-space: pre-wrap;
+}
+
+@keyframes alarmFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes alarmShake {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-12deg); }
+  75%      { transform: rotate(12deg); }
 }
 

@@ -1,16 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 
-// Load environment variables
-dotenv.config();
+// Load environment variables (único archivo .env del proyecto, en backend/)
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 // Import routes
 const authRoutes = require('./routes/auth');
 const appointmentRoutes = require('./routes/appointments');
 const serviceRoutes = require('./routes/services');
 const productRoutes = require('./routes/products');
-const paymentRoutes = require('./routes/payments');
 const clientRoutes = require('./routes/clients');
 const whatsappRoutes = require('./routes/whatsapp');
 
@@ -26,7 +26,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/payments', paymentRoutes);
 app.use('/api/clients', clientRoutes);
 
 // Basic route

@@ -82,24 +82,6 @@ const Appointment = {
     return result.rows[0];
   },
 
-  // Update payment status
-  updatePaymentStatus: async (id, pagoEstado) => {
-    const result = await pool.query(
-      'UPDATE appointments SET pago_estado = $1 WHERE id = $2 RETURNING *',
-      [pagoEstado, id]
-    );
-    return result.rows[0];
-  },
-
-  // Update appointment with proof of payment
-  updateWithProof: async (id, comprobanteUrl) => {
-    const result = await pool.query(
-      'UPDATE appointments SET comprobante_url = $1, pago_estado = $2 WHERE id = $3 RETURNING *',
-      [comprobanteUrl, 'pendiente', id]
-    );
-    return result.rows[0];
-  },
-
   // Delete an appointment
   delete: async (id) => {
     const result = await pool.query('DELETE FROM appointments WHERE id = $1 RETURNING *', [id]);

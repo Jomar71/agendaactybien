@@ -1,7 +1,9 @@
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
+const path = require('path');
 
-dotenv.config();
+// Único archivo .env del proyecto, ubicado en backend/
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const pool = new Pool({
   user: process.env.DB_USER,

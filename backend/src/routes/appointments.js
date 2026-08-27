@@ -26,16 +26,6 @@ router.patch('/:id/status', authenticateToken, authorizeAdmin, [
   body('estado').isIn(['pendiente', 'confirmada', 'cancelada']).withMessage('Estado inválido')
 ], appointmentController.updateAppointmentStatus);
 
-// Update payment status (admin only)
-router.patch('/:id/payment-status', authenticateToken, authorizeAdmin, [
-  body('pagoEstado').isIn(['pendiente', 'confirmado', 'rechazado']).withMessage('Estado de pago inválido')
-], appointmentController.updatePaymentStatus);
-
-// Upload proof of payment (public)
-router.post('/:id/upload-proof', [
-  body('comprobanteUrl').notEmpty().withMessage('Comprobante URL is required')
-], appointmentController.uploadProofOfPayment);
-
 // Get appointments by date (admin only)
 router.get('/date/:date', authenticateToken, authorizeAdmin, appointmentController.getAppointmentsByDate);
 
