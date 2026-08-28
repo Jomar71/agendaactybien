@@ -2509,11 +2509,12 @@ function renderHistory(el) {
                        <div>🧒 <strong>Paciente:</strong> ${escapeHtml(a.pacienteNombre)} (${a.pacienteEdad} años)</div>
                        <div>👤 <strong>Tutor:</strong> ${escapeHtml(a.tutorNombre)} (📱 ${escapeHtml(a.telefono)})</div>
                        ${a.motivoDetalle ? `<div style="font-size:0.82rem;color:var(--gray);background:var(--warm-white);padding:8px;border-radius:var(--radius-xs);margin-top:6px"><em>${escapeHtml(a.motivoDetalle)}</em></div>` : ''}
-                       <div style="margin-top:10px;display:flex;gap:8px">
+                       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
                          <button class="btn btn-sm btn-outline" data-action="view-app" data-id="${escapeHtml(a.id)}">Ver Detalle Completo</button>
                          <button class="btn btn-sm btn-secondary" data-action="toggle-status" data-id="${escapeHtml(a.id)}">
                            ${a.estado === 'atendida' ? 'Marcar Confirmada' : 'Marcar Atendida ✓'}
                          </button>
+                         <button class="btn btn-sm" data-action="delete-history" data-type="appointment" data-id="${escapeHtml(a.id)}" style="color:var(--danger);background:var(--danger-bg)">🗑 Eliminar</button>
                        </div>
                      </div>
                    </article>
@@ -2542,6 +2543,7 @@ function renderHistory(el) {
                        📅 Programada: ${formatDateShort(t.date)}<br>
                        ${t.completedAt ? `✓ Finalizada: ${new Date(t.completedAt).toLocaleDateString('es-CO')}` : '✓ Finalizada'}
                      </div>
+                     <button class="btn btn-sm" data-action="delete-history" data-type="task" data-id="${escapeHtml(t.id)}" style="color:var(--danger);background:var(--danger-bg);margin-top:10px;width:100%">🗑 Eliminar del historial</button>
                    </div>
                  `).join('')}
                </div>`
@@ -2555,6 +2557,11 @@ function renderHistory(el) {
     <div class="page-header" role="banner">
       <h1>Mi Historial de Citas y Tareas</h1>
       <p>Consulta registros de consultas psicológicas y metas terapéuticas alcanzadas</p>
+      <div style="margin-top:14px">
+        <button class="btn btn-sm" id="btn-clear-history" style="color:var(--danger);background:var(--danger-bg)">
+          🗑 Borrar Todo el Historial
+        </button>
+      </div>
     </div>
     <div class="container" id="history-container">
       <hr class="section-divider" aria-hidden="true">
@@ -2628,6 +2635,30 @@ function renderHistory(el) {
         }
       });
     });
+
+    document.querySelectorAll('[data-action="delete-history"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.type;
+        const id = btn.dataset.id;
+        if (type === 'appointment') {
+          const a = state.appointments.find(item => item.id === id);
+          if (a && confirm(`¿Seguro que deseas eliminar del historial la cita de ${a.pacienteNombre} (${formatDateShort(a.fecha)} a las ${a.hora})? También se quitará de Mi Agenda. Esta acción no se puede deshacer.`)) {
+            state.appointments = state.appointments.filter(item => item.id !== id);
+            saveAppointments();
+            showToast('Cita eliminada del historial y de Mi Agenda.', 'success');
+            refresh();
+          }
+        } else if (type === 'task') {
+          const t = state.tasks.find(item => item.id === id);
+          if (t && confirm(`¿Seguro que deseas eliminar del historial la tarea "${t.title}"? Esta acción no se puede deshacer.`)) {
+            state.tasks = state.tasks.filter(item => item.id !== id);
+            saveTasks();
+            showToast('Tarea eliminada del historial.', 'success');
+            refresh();
+          }
+        }
+      });
+    });
   };
 
   const refresh = () => {
@@ -2637,6 +2668,22 @@ function renderHistory(el) {
       attachFilterEvents();
     }
   };
+
+  document.getElementById('btn-clear-history')?.addEventListener('click', () => {
+    const totalRegistros = state.appointments.length + state.tasks.length;
+    if (totalRegistros === 0) {
+      showToast('No hay registros en el historial para eliminar.', 'info');
+      return;
+    }
+    if (confirm(`¿Seguro que deseas borrar TODO el historial (${totalRegistros} registro${totalRegistros === 1 ? '' : 's'})?\n\nSe eliminarán TODAS las citas y TODAS las tareas (completadas y pendientes). Esta acción no se puede deshacer.`)) {
+      state.appointments = [];
+      state.tasks = [];
+      saveAppointments();
+      saveTasks();
+      showToast('Todo el historial ha sido eliminado.', 'success');
+      refresh();
+    }
+  });
 
   attachFilterEvents();
 }
