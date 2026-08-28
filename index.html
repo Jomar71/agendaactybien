@@ -18,7 +18,7 @@
     rel="stylesheet">
 
   <!-- Hoja de estilos principal -->
-  <link rel="stylesheet" href="frontend/css/styles.css?v=4.2.0">
+  <link rel="stylesheet" href="frontend/css/styles.css?v=4.3.0">
   <!-- Respaldo para apertura directa desde servidor raíz o carpeta frontend -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -181,12 +181,12 @@
   <div id="toast" class="toast" role="alert" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Script principal de la aplicación -->
-  <script src="frontend/js/app.js?v=4.2.0"></script>
+  <script src="frontend/js/app.js?v=4.3.0"></script>
   <!-- Respaldo para carga si la raíz es la carpeta frontend -->
   <script>
     if (typeof state === 'undefined') {
       const backupScript = document.createElement('script');
-      backupScript.src = 'js/app.js';
+      backupScript.src = 'js/app.js?v=4.3.0';
       document.body.appendChild(backupScript);
     }
   </script>
