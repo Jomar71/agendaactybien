@@ -1,6 +1,18 @@
 {
-  "dependencies": {
-    "dotenv": "^17.3.1",
-    "pg": "^8.20.0"
-  }
+  "name": "agendaactybien",
+  "version": "1.0.0",
+  "description": "Plataforma web Actitud & Bienestar - Agenda de citas, tareas terapéuticas y directorio",
+  "scripts": {
+    "start": "npm --prefix backend start",
+    "dev": "npm --prefix backend run dev",
+    "seed": "npm --prefix backend run seed"
+  },
+  "keywords": [
+    "psicologia",
+    "agenda",
+    "tareas",
+    "directorio"
+  ],
+  "author": "Actitud & Bienestar",
+  "license": "MIT"
 }

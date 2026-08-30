@@ -1,16 +1,24 @@
 # Dependencias
 node_modules/
+backend/node_modules/
+*/node_modules/
 
 # Variables de entorno y datos sensibles (NUNCA subir al repositorio)
 .env
 backend/.env
 .env.local
+.env.*.local
 *.env
 
 # Registros y temporales
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 tmp/
+temp/
 
 # Sistema operativo
 .DS_Store
@@ -20,3 +28,9 @@ desktop.ini
 # Editores / IDEs
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
+
+# Build / Salidas
+dist/
+build/

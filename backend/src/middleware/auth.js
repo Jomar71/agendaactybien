@@ -2,33 +2,36 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
 const authenticateToken = async (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
-  
+  const authHeader = req.header('Authorization');
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : null;
+
   if (!token) {
-    return res.status(401).json({ message: 'Access denied. No token provided.' });
+    return res.status(401).json({ message: 'Acceso denegado. No se proporcionó un token de autenticación.' });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'nailart_studio_secret_key');
     
-    // Verify user still exists in the database
+    // Verificar que el usuario aún exista en la base de datos
     const userResult = await pool.query('SELECT id, nombre, email, rol FROM users WHERE id = $1', [decoded.id]);
-    
+
     if (!userResult.rows.length) {
-      return res.status(401).json({ message: 'Invalid token. User no longer exists.' });
+      return res.status(401).json({ message: 'Token no válido. El usuario ya no existe.' });
     }
-    
+
     req.user = userResult.rows[0];
     next();
   } catch (error) {
-    return res.status(403).json({ message: 'Invalid token.' });
+    // 401 para permitir que el frontend capture la expiración y solicite nuevo login
+    return res.status(401).json({ message: 'Sesión expirada o token no válido.', error: error.message });
   }
 };
 
 const authorizeAdmin = (req, res, next) => {
   if (!req.user || req.user.rol !== 'admin') {
-    return res.status(403).json({ message: 'Access denied. Admin role required.' });
+    return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos de administrador.' });
   }
   next();
 };
