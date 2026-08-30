@@ -13,11 +13,50 @@ const serviceRoutes = require('./routes/services');
 const productRoutes = require('./routes/products');
 const clientRoutes = require('./routes/clients');
 const whatsappRoutes = require('./routes/whatsapp');
+// Rutas específicas de la plataforma Actitud & Bienestar
+const citaRoutes = require('./routes/citas');
+const tareaRoutes = require('./routes/tareas');
+const contactoRoutes = require('./routes/contactos');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// ---------------------------------------------------------------------
+// CORS: permite el acceso desde el frontend (junto con credenciales).
+// Se lee de la variable CORS_ORIGINS (comas separadas) o se usan
+// valores por defecto: el dominio público y el local de desarrollo.
+// ---------------------------------------------------------------------
+const defaultOrigins = [
+  'https://agendaactybien.pxxl.click',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'https://jomar71.github.io'
+];
+
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+  .concat(defaultOrigins);
+
+app.use(cors({
+  origin(origin, callback) {
+    // Permitir peticiones sin origen (curl, Postman, apps de servidor)
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Permitir cualquier subdominio de pxxl.click
+    if (/\.pxxl\.click$/.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -27,6 +66,9 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/clients', clientRoutes);
+app.use('/api/citas', citaRoutes);
+app.use('/api/tareas', tareaRoutes);
+app.use('/api/contactos', contactoRoutes);
 
 // Basic route
 app.get('/', (req, res) => {

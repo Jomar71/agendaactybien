@@ -130,10 +130,11 @@ let calendarState = {
    ===================================================================== */
 function loadAuthState() {
   try {
-    const local = localStorage.getItem('ayb_session');
-    const session = sessionStorage.getItem('ayb_session');
+    const local = localStorage.getItem(LS_SESSION);
+    const session = sessionStorage.getItem(LS_SESSION);
     const raw = local || session;
-    if (raw) {
+    const hasToken = Boolean(getToken());
+    if (raw && hasToken) {
       const parsed = JSON.parse(raw);
       state.auth.isAuthenticated = true;
       state.auth.user = parsed.user || { email: DEMO_CREDENTIALS.email, name: DEMO_CREDENTIALS.name };
@@ -153,74 +154,206 @@ function saveAuthState(remember = false) {
     user: state.auth.user
   });
   if (remember) {
-    localStorage.setItem('ayb_session', data);
-    sessionStorage.removeItem('ayb_session');
+    localStorage.setItem(LS_SESSION, data);
+    sessionStorage.removeItem(LS_SESSION);
   } else {
-    sessionStorage.setItem('ayb_session', data);
-    localStorage.removeItem('ayb_session');
+    sessionStorage.setItem(LS_SESSION, data);
+    localStorage.removeItem(LS_SESSION);
   }
 }
 
 function clearAuthState() {
-  localStorage.removeItem('ayb_session');
-  sessionStorage.removeItem('ayb_session');
+  localStorage.removeItem(LS_SESSION);
+  sessionStorage.removeItem(LS_SESSION);
   state.auth.isAuthenticated = false;
   state.auth.user = null;
 }
 
+/*** CITAS -----------------------------------------------------------------
+ * Modelo "local-first": localStorage es la fuente inmediata para la UI y se
+ * sincroniza con el backend cuando hay conexión. Si el backend falla (sin
+ * red o error 4xx/5xx no crítico), la app continúa con la copia local.
+ * ---------------------------------------------------------------------- */
 function loadAppointments() {
-  try {
-    const saved = localStorage.getItem('ayb_appointments');
-    state.appointments = saved ? JSON.parse(saved) : [];
-  } catch {
-    state.appointments = [];
-  }
+  state.appointments = readLS(LS_APPOINTMENTS, []);
+  syncAppointmentsFromServer();
 }
 
 function saveAppointments() {
+  writeLS(LS_APPOINTMENTS, state.appointments);
+  syncAppointmentsToServer();
+}
+
+/** Descarga las citas del backend y reemplaza la copia local (optimista). */
+async function syncAppointmentsFromServer() {
+  if (!getToken()) return;
   try {
-    localStorage.setItem('ayb_appointments', JSON.stringify(state.appointments));
+    const list = await API.citas.getAll();
+    if (Array.isArray(list)) {
+      state.appointments = list.map(normalizeCitaFromServer);
+      writeLS(LS_APPOINTMENTS, state.appointments);
+      setBackendOnline(true);
+    }
   } catch (e) {
-    console.error('Error al guardar citas:', e);
+    // 401 ya redirige; los demás errores dejan intacta la copia local
+    if (e.status && e.status !== 401) setBackendOnline(false);
   }
 }
 
-function loadTasks() {
+/** Envía cambios locales al backend. Los nuevos se crean y se recalculan sus
+ *  ids; los existentes se actualizan; los que faltan en el backend se borran. */
+async function syncAppointmentsToServer() {
+  if (!getToken() || !state.appointments) return;
   try {
-    const saved = localStorage.getItem('ayb_tasks');
-    state.tasks = saved ? JSON.parse(saved) : [];
-  } catch {
-    state.tasks = [];
+    let remote = await API.citas.getAll();
+    if (!Array.isArray(remote)) remote = [];
+
+    const remoteIds = new Set(remote.map(r => String(r.id)));
+
+    // Actualizar/crear cada cita local
+    for (const a of state.appointments) {
+      const isNew = !remoteIds.has(String(a.id));
+      if (isNew) {
+        const created = await API.citas.create(citaToServer(a));
+        if (created && created.id) a.id = String(created.id);
+      } else {
+        await API.citas.update(a.id, citaToServer(a));
+      }
+    }
+
+    // Eliminar en el backend las citas que ya no existen en local
+    const localIds = new Set(state.appointments.map(a => String(a.id)));
+    for (const r of remote) {
+      if (!localIds.has(String(r.id))) {
+        try { await API.citas.remove(r.id); } catch (e) { /* ignorar borrado remoto */ }
+      }
+    }
+
+    writeLS(LS_APPOINTMENTS, state.appointments);
+    setBackendOnline(true);
+  } catch (e) {
+    if (e.status && e.status !== 401) setBackendOnline(false);
   }
+}
+
+/*** TAREAS ---------------------------------------------------------------- */
+function loadTasks() {
+  state.tasks = readLS(LS_TASKS, []);
+  syncTasksFromServer();
 }
 
 function saveTasks() {
+  writeLS(LS_TASKS, state.tasks);
+  syncTasksToServer();
+}
+
+async function syncTasksFromServer() {
+  if (!getToken()) return;
   try {
-    localStorage.setItem('ayb_tasks', JSON.stringify(state.tasks));
+    const list = await API.tareas.getAll();
+    if (Array.isArray(list)) {
+      state.tasks = list.map(normalizeTaskFromServer);
+      writeLS(LS_TASKS, state.tasks);
+      setBackendOnline(true);
+    }
   } catch (e) {
-    console.error('Error al guardar tareas:', e);
+    if (e.status && e.status !== 401) setBackendOnline(false);
   }
 }
 
-function loadContacts() {
+async function syncTasksToServer() {
+  if (!getToken() || !state.tasks) return;
   try {
-    const saved = localStorage.getItem('ayb_contacts');
-    if (saved) {
-      state.contacts = JSON.parse(saved);
-    } else {
-      state.contacts = [...DEFAULT_CONTACTS];
-      saveContacts();
+    let remote = await API.tareas.getAll();
+    if (!Array.isArray(remote)) remote = [];
+
+    const remoteIds = new Set(remote.map(r => String(r.id)));
+
+    for (const t of state.tasks) {
+      const isNew = !remoteIds.has(String(t.id));
+      if (isNew) {
+        const created = await API.tareas.create(taskToServer(t));
+        if (created && created.id) t.id = String(created.id);
+      } else {
+        await API.tareas.update(t.id, taskToServer(t));
+      }
     }
-  } catch {
-    state.contacts = [...DEFAULT_CONTACTS];
+
+    const localIds = new Set(state.tasks.map(t => String(t.id)));
+    for (const r of remote) {
+      if (!localIds.has(String(r.id))) {
+        try { await API.tareas.remove(r.id); } catch (e) { /* ignorar */ }
+      }
+    }
+
+    writeLS(LS_TASKS, state.tasks);
+    setBackendOnline(true);
+  } catch (e) {
+    if (e.status && e.status !== 401) setBackendOnline(false);
   }
+}
+
+/*** CONTACTOS ------------------------------------------------------------- */
+function loadContacts() {
+  const saved = readLS(LS_CONTACTS, null);
+  if (saved) {
+    state.contacts = saved;
+  } else {
+    state.contacts = [...DEFAULT_CONTACTS];
+    writeLS(LS_CONTACTS, state.contacts);
+  }
+  syncContactsFromServer();
 }
 
 function saveContacts() {
+  writeLS(LS_CONTACTS, state.contacts);
+  syncContactsToServer();
+}
+
+async function syncContactsFromServer() {
+  if (!getToken()) return;
   try {
-    localStorage.setItem('ayb_contacts', JSON.stringify(state.contacts));
+    const list = await API.contactos.getAll();
+    if (Array.isArray(list)) {
+      // Si el backend devuelve datos, el servidor es la fuente autoritativa.
+      state.contacts = list.map(normalizeContactFromServer);
+      writeLS(LS_CONTACTS, state.contacts);
+      setBackendOnline(true);
+    }
   } catch (e) {
-    console.error('Error al guardar contactos:', e);
+    if (e.status && e.status !== 401) setBackendOnline(false);
+  }
+}
+
+async function syncContactsToServer() {
+  if (!getToken() || !state.contacts) return;
+  try {
+    let remote = await API.contactos.getAll();
+    if (!Array.isArray(remote)) remote = [];
+
+    const remoteIds = new Set(remote.map(r => String(r.id)));
+
+    for (const c of state.contacts) {
+      const isNew = !remoteIds.has(String(c.id));
+      if (isNew) {
+        const created = await API.contactos.create(contactToServer(c));
+        if (created && created.id) c.id = String(created.id);
+      } else {
+        await API.contactos.update(c.id, contactToServer(c));
+      }
+    }
+
+    const localIds = new Set(state.contacts.map(c => String(c.id)));
+    for (const r of remote) {
+      if (!localIds.has(String(r.id))) {
+        try { await API.contactos.remove(r.id); } catch (e) { /* ignorar */ }
+      }
+    }
+
+    writeLS(LS_CONTACTS, state.contacts);
+    setBackendOnline(true);
+  } catch (e) {
+    if (e.status && e.status !== 401) setBackendOnline(false);
   }
 }
 
@@ -542,11 +675,13 @@ function renderLogin(el) {
   });
 
   // Procesamiento del inicio de sesión
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = el.querySelector('#login-email').value.trim();
     const password = el.querySelector('#login-password').value;
     const remember = el.querySelector('#login-remember').checked;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
 
     if (!email || !password) {
       errorBanner.textContent = 'Por favor completa todos los campos.';
@@ -554,21 +689,27 @@ function renderLogin(el) {
       return;
     }
 
-    // Validación de credenciales
-    if (email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() && password === DEMO_CREDENTIALS.password) {
+    // Autenticación REAL contra el backend (POST /api/auth/login → JWT).
+    // Si el backend no responde, cae a las credenciales demo como respaldo.
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = 'Ingresando…';
+    const result = await authenticateLogin(email, password, remember);
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalText;
+
+    if (result.ok) {
       errorBanner.classList.add('hidden');
-      state.auth.isAuthenticated = true;
-      state.auth.user = {
-        email: DEMO_CREDENTIALS.email,
-        name: DEMO_CREDENTIALS.name,
-        role: DEMO_CREDENTIALS.role
-      };
       saveAuthState(remember);
-      showToast(`¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`, 'success');
+      showToast(
+        result.offline
+          ? `⚠️ Sin conexión. Entraste con credenciales de respaldo. 💚`
+          : `¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`,
+        result.offline ? 'error' : 'success'
+      );
       window.location.hash = '#/';
       router();
     } else {
-      errorBanner.textContent = '⚠️ Usuario o contraseña incorrectos. Usa las credenciales de prueba.';
+      errorBanner.textContent = '⚠️ ' + (result.error || 'Usuario o contraseña incorrectos.');
       errorBanner.classList.remove('hidden');
       el.querySelector('#login-password').focus();
     }
@@ -577,6 +718,7 @@ function renderLogin(el) {
 
 function handleLogout() {
   if (confirm('¿Deseas cerrar tu sesión actual?')) {
+    clearToken();
     clearAuthState();
     showToast('Has cerrado sesión correctamente.', 'info');
     window.location.hash = '#/';
@@ -1709,9 +1851,351 @@ function openWhatsAppConfirmation(appointment) {
   showToast('✓ Se abrió WhatsApp con el mensaje de confirmación. Presiona "Enviar" para entregárselo al tutor.', 'info');
 }
 
-/** URL base del backend (cambia aquí o define window.BACKEND_API_BASE antes
- *  de app.js si despliegas el backend en otro servidor). */
-const BACKEND_API_BASE = window.BACKEND_API_BASE || 'http://localhost:4000';
+/* =====================================================================
+   9.c CAPA DE INTEGRACIÓN CON EL BACKEND (REST + JWT)
+   =====================================================================
+   Centraliza TODAS las peticiones al backend:
+   - Autenticación con JWT (token en localStorage/sessionStorage)
+   - Credenciales y encabezados de autorización en cada petición
+   - Manejo de errores: 401 → cierre de sesión; 4xx/5xx → mensaje claro
+   - Respaldo automático en localStorage si el backend no responde
+   ===================================================================== */
+
+/** Constantes de almacenamiento local */
+const LS_TOKEN        = 'ayb_token';
+const LS_SESSION      = 'ayb_session';
+const LS_APPOINTMENTS = 'ayb_appointments';
+const LS_TASKS        = 'ayb_tasks';
+const LS_CONTACTS     = 'ayb_contacts';
+
+/**
+ * URL base del backend. Prioridad de configuración:
+ *  1. window.API_BASE_URL (defínela antes de cargar app.js si el backend
+ *     está en otro servidor, ej: <script>window.API_BASE_URL='https://api...'</script>)
+ *  2. El host actual si es un subdominio de pxxl.click (se asume el backend
+ *     publicado bajo /api del mismo dominio).
+ *  3. http://localhost:4000 (desarrollo local).
+ */
+const BACKEND_API_BASE = (function () {
+  if (window.API_BASE_URL) return window.API_BASE_URL;
+  const host = (window.location.host || '').toLowerCase();
+  if (/pxxl\.click/i.test(host)) return `${window.location.protocol}//${host}`;
+  return 'http://localhost:4000';
+})();
+
+/** Estado de conexión del backend (para mostrar un aviso al usar respaldo local) */
+let backendOnline = true;
+
+/** Lee/elimina el token JWT actual de localStorage o sessionStorage */
+function getToken() {
+  try {
+    return localStorage.getItem(LS_TOKEN) || sessionStorage.getItem(LS_TOKEN) || null;
+  } catch { return null; }
+}
+
+function setToken(token, remember = false) {
+  try {
+    if (remember) { localStorage.setItem(LS_TOKEN, token); sessionStorage.removeItem(LS_TOKEN); }
+    else          { sessionStorage.setItem(LS_TOKEN, token); localStorage.removeItem(LS_TOKEN); }
+  } catch (e) { console.error('Error guardando el token:', e); }
+}
+
+function clearToken() {
+  try { localStorage.removeItem(LS_TOKEN); sessionStorage.removeItem(LS_TOKEN); } catch (e) { /* ignorar */ }
+}
+
+/** Encabezados por defecto, inyectando el token Bearer si existe */
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  const token = getToken();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return headers;
+}
+
+/** Muestra u oculta el aviso de "modo respaldo local" cuando el backend cae */
+function updateBackendBanner() {
+  let banner = document.getElementById('offline-banner');
+  if (backendOnline) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'offline-banner';
+    banner.setAttribute('role', 'status');
+    banner.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#f5a623;color:#2b1f00;text-align:center;padding:8px 12px;font-size:0.85rem;font-weight:700;font-family:Inter,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.15)';
+    document.body.appendChild(banner);
+  }
+  banner.textContent = '⚠️ Sin conexión con el servidor. Usando copia local (los cambios se sincronizarán cuando haya conexión).';
+}
+
+function setBackendOnline(online) {
+  const changed = backendOnline !== online;
+  backendOnline = online;
+  if (changed) updateBackendBanner();
+}
+
+/** Cierra la sesión ante un 401 (token inválido/expirado) y redirige al login */
+function handleUnauthorized() {
+  clearToken();
+  clearAuthState();
+  showToast('Tu sesión ha caducado. Por favor inicia sesión de nuevo.', 'info');
+  window.location.hash = '#/';
+  if (typeof router === 'function') router();
+}
+
+/** Mensaje por defecto según el código de error HTTP */
+function defaultErrorMessage(status) {
+  if (status >= 500) return 'Error del servidor. Inténtalo de nuevo más tarde.';
+  if (status === 404) return 'No se encontró el recurso solicitado.';
+  if (status === 400 || status === 422) return 'La información enviada no es válida.';
+  if (status === 403) return 'No tienes permisos para realizar esta acción.';
+  return 'Ocurrió un error inesperado.';
+}
+
+/**
+ * fetch() unificado contra el backend.
+ * - Aplica timeout para no dejar cargando indefinidamente.
+ * - Envía credenciales y el token JWT automáticamente.
+ * - Convierte errores 401 en cierre de sesión y 4xx/5xx en mensajes claros.
+ * - Si no hay red, marca el respaldo local y lanza un error con status 0.
+ */
+async function apiFetch(path, { method = 'GET', body, timeout = 15000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  let res;
+
+  try {
+    res = await fetch(BACKEND_API_BASE + path, {
+      method,
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    setBackendOnline(false);
+    const e = new Error('No se pudo conectar con el servidor. Se ha activado la copia local; verifica tu conexión e inténtalo de nuevo.');
+    e.status = 0;
+    throw e;
+  }
+  clearTimeout(timer);
+
+  // 401 → cerrar sesión y volver al login
+  if (res.status === 401) {
+    handleUnauthorized();
+    const e = new Error('Sesión no válida o caducada. Por favor inicia sesión de nuevo.');
+    e.status = 401;
+    throw e;
+  }
+
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+
+  // 4xx / 5xx → mensaje claro
+  if (!res.ok) {
+    const message = (data && (data.message || data.error)) || defaultErrorMessage(res.status);
+    const e = new Error(message);
+    e.status = res.status;
+    e.data = data;
+    throw e;
+  }
+
+  setBackendOnline(true);
+  return data;
+}
+
+/** Helpers CRUD agrupados por recurso */
+const API = {
+  auth: {
+    login: (email, password) =>
+      apiFetch('/api/auth/login', { method: 'POST', body: { email, password } }),
+    register: (payload) =>
+      apiFetch('/api/auth/register', { method: 'POST', body: payload }),
+    profile: () =>
+      apiFetch('/api/auth/profile')
+  },
+  citas: {
+    getAll:  () => apiFetch('/api/citas'),
+    create:  (c) => apiFetch('/api/citas', { method: 'POST', body: c }),
+    update:  (id, c) => apiFetch('/api/citas/' + id, { method: 'PUT', body: c }),
+    remove:  (id) => apiFetch('/api/citas/' + id, { method: 'DELETE' })
+  },
+  tareas: {
+    getAll:  () => apiFetch('/api/tareas'),
+    create:  (t) => apiFetch('/api/tareas', { method: 'POST', body: t }),
+    update:  (id, t) => apiFetch('/api/tareas/' + id, { method: 'PUT', body: t }),
+    remove:  (id) => apiFetch('/api/tareas/' + id, { method: 'DELETE' })
+  },
+  contactos: {
+    getAll:  () => apiFetch('/api/contactos'),
+    create:  (c) => apiFetch('/api/contactos', { method: 'POST', body: c }),
+    update:  (id, c) => apiFetch('/api/contactos/' + id, { method: 'PUT', body: c }),
+    remove:  (id) => apiFetch('/api/contactos/' + id, { method: 'DELETE' })
+  }
+};
+
+/* ---------------------------------------------------------------------
+   Conversión de datos entre el formato del frontend (camelCase, ids de
+   texto) y el formato del backend (snake_case, ids numéricos), para que
+   la lógica existente de la SPA siga funcionando sin cambios.
+   --------------------------------------------------------------------- */
+
+/** Normaliza un registro devuelto por el backend al formato del frontend */
+function normalizeCitaFromServer(c) {
+  return {
+    id: String(c.id),
+    professionalId: c.professional_id,
+    professionalName: c.professional_name,
+    professionalSpecialty: c.professional_specialty,
+    tutorNombre: c.tutor_nombre,
+    pacienteNombre: c.paciente_nombre,
+    pacienteEdad: c.paciente_edad,
+    // PostgreSQL devuelve DATE y TIME como cadenas 'YYYY-MM-DD' y 'HH:MM:SS'
+    fecha: c.fecha ? String(c.fecha).slice(0, 10) : c.fecha,
+    hora: c.hora ? String(c.hora).slice(0, 5) : c.hora,
+    telefono: c.telefono,
+    email: c.email,
+    motivo: c.motivo,
+    motivoDetalle: c.motivo_detalle,
+    reminderOffset: c.reminder_offset,
+    reminderSound: c.reminder_sound,
+    estado: c.estado || 'confirmada',
+    createdAt: c.created_at
+  };
+}
+
+function normalizeTaskFromServer(t) {
+  return {
+    id: String(t.id),
+    date: t.fecha ? String(t.fecha).slice(0, 10) : t.fecha,
+    time: t.hora ? String(t.hora).slice(0, 5) : t.hora,
+    title: t.title,
+    description: t.description,
+    priority: t.priority,
+    category: t.category,
+    reminderOffset: t.reminder_offset,
+    reminderSound: t.reminder_sound,
+    done: !!t.done,
+    completedAt: t.completed_at,
+    createdAt: t.created_at
+  };
+}
+
+function normalizeContactFromServer(c) {
+  return {
+    id: String(c.id),
+    nombre: c.nombre,
+    telefono: c.telefono,
+    email: c.email,
+    relacion: c.relacion,
+    paciente: c.paciente,
+    notas: c.notas,
+    createdAt: c.created_at
+  };
+}
+
+/** Convierte una cita del formato frontend al formato que espera el backend */
+function citaToServer(c) {
+  return {
+    professionalId: c.professionalId,
+    professionalName: c.professionalName,
+    professionalSpecialty: c.professionalSpecialty,
+    tutorNombre: c.tutorNombre,
+    pacienteNombre: c.pacienteNombre,
+    pacienteEdad: c.pacienteEdad,
+    fecha: c.fecha,
+    hora: c.hora,
+    telefono: c.telefono,
+    email: c.email,
+    motivo: c.motivo,
+    motivoDetalle: c.motivoDetalle,
+    reminderOffset: c.reminderOffset,
+    reminderSound: c.reminderSound,
+    estado: c.estado || 'confirmada'
+  };
+}
+
+function taskToServer(t) {
+  return {
+    date: t.date,
+    time: t.time,
+    title: t.title,
+    description: t.description,
+    priority: t.priority,
+    category: t.category,
+    reminderOffset: t.reminderOffset,
+    reminderSound: t.reminderSound,
+    done: !!t.done
+  };
+}
+
+function contactToServer(c) {
+  return {
+    nombre: c.nombre,
+    telefono: c.telefono,
+    email: c.email,
+    relacion: c.relacion,
+    paciente: c.paciente,
+    notas: c.notas
+  };
+}
+
+/** Lee una clave de localStorage de forma segura */
+function readLS(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+
+/** Escribe una clave en localStorage de forma segura */
+function writeLS(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.error('Error guardando en localStorage:', e); }
+}
+
+/** Función de autenticación real con JWT contra el backend.
+ *  Si el backend no está disponible, cae a las credenciales demo actuales
+ *  para que la app siga siendo usable sin conexión. */
+async function authenticateLogin(email, password, remember) {
+  try {
+    const data = await API.auth.login(email, password);
+    const token = data && data.token;
+    const user = (data && data.user) || null;
+    if (!token || !user) {
+      throw new Error('El servidor no devolvió una sesión válida.');
+    }
+    setToken(token, remember);
+    state.auth.isAuthenticated = true;
+    state.auth.user = {
+      email: user.email,
+      name: user.nombre || 'Usuario',
+      role: user.rol || 'admin'
+    };
+    return { ok: true, data };
+  } catch (err) {
+    // 401/400: credenciales incorrectas en el servidor → no usar demo
+    if (err.status && err.status !== 0) {
+      return { ok: false, error: err.message, server: true };
+    }
+    // Sin red (status 0): respaldo con credenciales demo
+    if (email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() && password === DEMO_CREDENTIALS.password) {
+      // Se guarda un token local simbólico para que la sesión persista sin
+      // red. Cuando el backend vuelva, el token no será válido y se le pedirá
+      // iniciar sesión con las credenciales reales (ver handleUnauthorized).
+      setToken('demo-offline-' + Date.now(), remember);
+      state.auth.isAuthenticated = true;
+      state.auth.user = {
+        email: DEMO_CREDENTIALS.email,
+        name: DEMO_CREDENTIALS.name,
+        role: DEMO_CREDENTIALS.role
+      };
+      return { ok: true, offline: true, data: null };
+    }
+    return { ok: false, error: 'No se pudo conectar con el servidor y las credenciales de respaldo no coinciden.', server: false };
+  }
+}
 
 /** Intenta enviar la confirmación AUTOMÁTICAMENTE vía WhatsApp Cloud API
  *  (backend). Si el backend no está disponible o sin credenciales, usa
