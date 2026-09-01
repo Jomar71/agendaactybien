@@ -3,7 +3,7 @@
    Solo almacena en caché los archivos de la "shell" de la app;
    NO intercepta las peticiones al API para no interferir con la
    sincronización con el backend. */
-const CACHE = 'ayb-v2';
+const CACHE = 'ayb-v3';
 
 const SHELL = [
   './',
@@ -38,21 +38,24 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api') || url.origin !== self.location.origin) {
     return;
   }
-  // Estrategia: cache-first para la shell, red como respaldo (network fallback)
+  // Estrategia: red-primero (network-first) con caché como respaldo.
+  // Siempre intenta traer la versión más reciente del servidor cuando hay
+  // conexión; usa la caché solo si no hay red (funciona offline).
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
+    fetch(event.request)
+      .then((res) => {
+        if (res && res.ok && (res.type === 'basic' || res.type === 'cors')) {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(event.request, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => {
-          if (event.request.mode === 'navigate') {
-            return caches.match('./index.html');
-          }
-        });
-    })
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') {
+          return caches.match('./index.html');
+        }
+        return Response.error();
+      }))
   );
 });

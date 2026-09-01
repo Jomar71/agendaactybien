@@ -1,14 +1,14 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description"
-    content="Actitud & Bienestar - Plataforma de agendamiento de citas para atención psicológica infantil y juvenil, y asistente de tareas terapéuticas.">
-  <meta name="keywords" content="psicología infantil, psicología juvenil, terapia emocional, agendamiento citas, tareas terapéuticas, Actitud y Bienestar">
+    content="Actitud & Bienestar - Plataforma de agendamiento de citas para atenciÃ³n psicolÃ³gica infantil y juvenil, y asistente de tareas terapÃ©uticas.">
+  <meta name="keywords" content="psicologÃ­a infantil, psicologÃ­a juvenil, terapia emocional, agendamiento citas, tareas terapÃ©uticas, Actitud y Bienestar">
   <meta name="theme-color" content="#2BABB0">
-  <title>Actitud & Bienestar | Atención Psicológica Infantil y Juvenil</title>
+  <title>Actitud & Bienestar | AtenciÃ³n PsicolÃ³gica Infantil y Juvenil</title>
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -23,20 +23,20 @@
     rel="stylesheet">
 
   <!-- Hoja de estilos principal -->
-  <link rel="stylesheet" href="frontend/css/styles.css?v=5.2.0">
+  <link rel="stylesheet" href="frontend/css/styles.css?v=5.3.0">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 
 <body>
   <div id="app">
     <!-- ===================== HEADER ===================== -->
-    <!-- Overlay para cerrar el sidebar al hacer clic fuera (móvil/tablet) -->
+    <!-- Overlay para cerrar el sidebar al hacer clic fuera (mÃ³vil/tablet) -->
     <div id="nav-overlay" aria-hidden="true"></div>
 
     <header id="header" role="banner">
       <div class="header-inner">
-        <!-- Botón hamburguesa (visible en móvil/tablet ≤1024px) -->
-        <button id="menu-toggle" aria-label="Abrir menú de navegación" aria-expanded="false" aria-controls="nav" type="button">
+        <!-- BotÃ³n hamburguesa (visible en mÃ³vil/tablet â‰¤1024px) -->
+        <button id="menu-toggle" aria-label="Abrir menÃº de navegaciÃ³n" aria-expanded="false" aria-controls="nav" type="button">
           <span class="bar"></span>
           <span class="bar"></span>
           <span class="bar"></span>
@@ -49,15 +49,15 @@
             alt="Actitud y Bienestar - Terapia Emocional Logo" class="logo-img">
         </a>
 
-        <!-- Navegación principal -->
-        <nav id="nav" role="navigation" aria-label="Menú principal">
+        <!-- NavegaciÃ³n principal -->
+        <nav id="nav" role="navigation" aria-label="MenÃº principal">
           <a href="#/" class="nav-link" data-nav>Inicio</a>
           <a href="#/agendar" class="nav-link" data-nav>Mi Agenda</a>
           <a href="#/tareas" class="nav-link" data-nav>Mis Tareas</a>
           <a href="#/historial" class="nav-link" data-nav>Mi Historial</a>
           <a href="#/directorio" class="nav-link" data-nav>Mi Directorio</a>
           <button id="btn-logout" class="nav-link nav-link--logout" aria-label="Salir de la plataforma" type="button">
-            <span>Salir</span> 🚪
+            <span>Salir</span> ðŸšª
           </button>
         </nav>
       </div>
@@ -65,7 +65,7 @@
 
     <!-- ===================== CONTENIDO PRINCIPAL ===================== -->
     <main id="content" role="main" tabindex="-1">
-      <!-- El contenido se inyecta dinámicamente por el router SPA -->
+      <!-- El contenido se inyecta dinÃ¡micamente por el router SPA -->
       <div class="loader" id="loader" role="status" aria-label="Cargando contenido">
         <div class="spinner" aria-hidden="true"></div>
       </div>
@@ -74,7 +74,7 @@
     <!-- ===================== MODAL GENERAL (ACCESIBLE) ===================== -->
     <div id="modal-container" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
       <div class="modal-card" id="modal-content" role="document">
-        <!-- Inyección dinámica de modales (contactos, detalles, etc.) -->
+        <!-- InyecciÃ³n dinÃ¡mica de modales (contactos, detalles, etc.) -->
       </div>
     </div>
 
@@ -82,34 +82,34 @@
     <footer id="footer" role="contentinfo">
       <div class="footer-inner">
         <div class="footer-grid">
-          <!-- Columna 1: Logo, descripción y redes -->
+          <!-- Columna 1: Logo, descripciÃ³n y redes -->
           <div class="footer-col footer-col--brand">
             <img src="logo/LOGO ACTITUD Y BIENESTAR SIN FONDO.png"
               onerror="this.onerror=null; this.src='frontend/img/logo/LOGO ACTITUD Y BIENESTAR SIN FONDO.png';"
               alt="Actitud y Bienestar - Terapia Emocional" class="footer-logo">
-            <p>Acompañamiento psicológico profesional para niños, niñas y adolescentes. Un espacio seguro, cálido y confidencial donde la salud emocional es la prioridad.</p>
+            <p>AcompaÃ±amiento psicolÃ³gico profesional para niÃ±os, niÃ±as y adolescentes. Un espacio seguro, cÃ¡lido y confidencial donde la salud emocional es la prioridad.</p>
             <!-- Redes Sociales -->
             <div class="social-links" aria-label="Redes sociales de Actitud y Bienestar">
               <a href="https://wa.me/573106266100" target="_blank" rel="noopener noreferrer"
-                aria-label="Contáctanos por WhatsApp (+57 310 626 6100)" class="social-link social-link--whatsapp">
+                aria-label="ContÃ¡ctanos por WhatsApp (+57 310 626 6100)" class="social-link social-link--whatsapp">
                 <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                 </svg>
               </a>
               <a href="https://www.instagram.com/actitudybienestar" target="_blank" rel="noopener noreferrer"
-                aria-label="Síguenos en Instagram (@actitudybienestar)" class="social-link social-link--instagram">
+                aria-label="SÃ­guenos en Instagram (@actitudybienestar)" class="social-link social-link--instagram">
                 <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                   <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
                 </svg>
               </a>
               <a href="https://www.facebook.com/actitudybienestar" target="_blank" rel="noopener noreferrer"
-                aria-label="Síguenos en Facebook (Actitud y Bienestar)" class="social-link social-link--facebook">
+                aria-label="SÃ­guenos en Facebook (Actitud y Bienestar)" class="social-link social-link--facebook">
                 <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
               </a>
               <a href="https://www.tiktok.com/@actitudybienestar" target="_blank" rel="noopener noreferrer"
-                aria-label="Síguenos en TikTok (@actitudybienestar)" class="social-link social-link--tiktok">
+                aria-label="SÃ­guenos en TikTok (@actitudybienestar)" class="social-link social-link--tiktok">
                 <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                   <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.52a8.19 8.19 0 004.78 1.52V6.57a4.85 4.85 0 01-1.01.12z"/>
                 </svg>
@@ -119,15 +119,15 @@
 
           <!-- Columna 2: Horarios -->
           <div class="footer-col">
-            <h4>Horarios de Atención</h4>
-            <ul class="footer-schedule" aria-label="Horarios de atención">
+            <h4>Horarios de AtenciÃ³n</h4>
+            <ul class="footer-schedule" aria-label="Horarios de atenciÃ³n">
               <li>
                 <span class="schedule-day">Lunes - Viernes</span>
-                <span class="schedule-time">8:00 AM – 6:00 PM</span>
+                <span class="schedule-time">8:00 AM â€“ 6:00 PM</span>
               </li>
               <li>
-                <span class="schedule-day">Sábados</span>
-                <span class="schedule-time">9:00 AM – 2:00 PM</span>
+                <span class="schedule-day">SÃ¡bados</span>
+                <span class="schedule-time">9:00 AM â€“ 2:00 PM</span>
               </li>
               <li>
                 <span class="schedule-day">Domingos</span>
@@ -138,29 +138,29 @@
 
           <!-- Columna 3: Contacto -->
           <div class="footer-col">
-            <h4>Contáctanos</h4>
-            <address class="footer-contact" aria-label="Información de contacto directo">
+            <h4>ContÃ¡ctanos</h4>
+            <address class="footer-contact" aria-label="InformaciÃ³n de contacto directo">
               <a href="https://wa.me/573106266100" target="_blank" rel="noopener noreferrer"
                 class="contact-item" aria-label="WhatsApp: +57 310 626 6100">
-                <span class="contact-icon" aria-hidden="true">📱</span>
+                <span class="contact-icon" aria-hidden="true">ðŸ“±</span>
                 <span>+57 310 626 6100</span>
               </a>
               <a href="mailto:actitudybienestarcolombia@gmail.com" class="contact-item"
-                aria-label="Correo electrónico: actitudybienestarcolombia@gmail.com">
-                <span class="contact-icon" aria-hidden="true">✉️</span>
+                aria-label="Correo electrÃ³nico: actitudybienestarcolombia@gmail.com">
+                <span class="contact-icon" aria-hidden="true">âœ‰ï¸</span>
                 <span>actitudybienestarcolombia@gmail.com</span>
               </a>
               <div class="contact-item">
-                <span class="contact-icon" aria-hidden="true">📍</span>
+                <span class="contact-icon" aria-hidden="true">ðŸ“</span>
                 <span>Pasto, Colombia</span>
               </div>
             </address>
           </div>
 
-          <!-- Columna 4: Navegación rápida -->
+          <!-- Columna 4: NavegaciÃ³n rÃ¡pida -->
           <div class="footer-col">
-            <h4>Navegación</h4>
-            <nav aria-label="Navegación rápida en el pie de página">
+            <h4>NavegaciÃ³n</h4>
+            <nav aria-label="NavegaciÃ³n rÃ¡pida en el pie de pÃ¡gina">
               <ul class="footer-nav-list">
                 <li><a href="#/" data-nav class="footer-nav-link">Inicio</a></li>
                 <li><a href="#/agendar" data-nav class="footer-nav-link">Mi Agenda</a></li>
@@ -174,8 +174,8 @@
 
         <!-- Pie del footer -->
         <div class="footer-bottom">
-          <p>&copy; 2026 Actitud &amp; Bienestar – Terapia Emocional Infantil y Juvenil. Todos los derechos reservados.</p>
-          <p class="footer-tagline">Acompañando el bienestar emocional y desarrollo integral de tus hijos 💚</p>
+          <p>&copy; 2026 Actitud &amp; Bienestar â€“ Terapia Emocional Infantil y Juvenil. Todos los derechos reservados.</p>
+          <p class="footer-tagline">AcompaÃ±ando el bienestar emocional y desarrollo integral de tus hijos ðŸ’š</p>
         </div>
       </div>
     </footer>
@@ -184,13 +184,13 @@
   <!-- Notificaciones toast accesibles -->
   <div id="toast" class="toast" role="alert" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Script principal de la aplicación -->
-  <script src="frontend/js/app.js?v=5.2.0"></script>
-  <!-- Respaldo para carga si la raíz es la carpeta frontend -->
+  <!-- Script principal de la aplicaciÃ³n -->
+  <script src="frontend/js/app.js?v=5.3.0"></script>
+  <!-- Respaldo para carga si la raÃ­z es la carpeta frontend -->
   <script>
     if (typeof state === 'undefined') {
       const backupScript = document.createElement('script');
-      backupScript.src = 'js/app.js?v=5.2.0';
+      backupScript.src = 'js/app.js?v=5.3.0';
       document.body.appendChild(backupScript);
     }
   </script>
