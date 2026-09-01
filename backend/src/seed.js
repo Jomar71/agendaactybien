@@ -13,9 +13,9 @@ const bcrypt = require('bcryptjs');
 const pool = require('./config/db');
 
 // Usuario por defecto que coincide con el login que ya trae el frontend
-// pre-llenado (admin@terapia.com / 123456). CÁMBIALO en producción.
+// pre-llenado (paola@terapia / pao1234567). CÁMBIALO en producción.
 const DEFAULT_USERS = [
-  { email: 'admin@terapia.com', password: '123456', nombre: 'Equipo Terapéutico' }
+  { email: 'paola@terapia', password: 'pao1234567', nombre: 'Paola' }
 ];
 
 // Contactos iniciales de Mi Directorio (vinculados al usuario anterior)

@@ -11,9 +11,9 @@
 
 /** Credenciales predefinidas de acceso para demostración */
 const DEMO_CREDENTIALS = {
-  email: 'admin@terapia.com',
-  password: '123456',
-  name: 'Equipo Terapéutico',
+  email: 'paola@terapia',
+  password: 'pao1234567',
+  name: 'Paola',
   role: 'Administrador Clínico'
 };
 
@@ -382,6 +382,21 @@ function writeLS(key, value) {
  *  Si el backend no está disponible, cae a las credenciales demo actuales
  *  para que la app siga siendo usable sin conexión. */
 async function authenticateLogin(email, password, remember) {
+  // 1) Validación local SIEMPRE disponible: si las credenciales coinciden
+  //    con las de la cuenta local, se inicia sesión sin depender del backend.
+  if (email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() && password === DEMO_CREDENTIALS.password) {
+    setToken('local-' + Date.now(), remember);
+    state.auth.isAuthenticated = true;
+    state.auth.user = {
+      email: DEMO_CREDENTIALS.email,
+      name: DEMO_CREDENTIALS.name,
+      role: DEMO_CREDENTIALS.role
+    };
+    try { await API.auth.login(email, password); setBackendOnline(true); } catch (e) { setBackendOnline(false); }
+    return { ok: true, offline: true, data: null };
+  }
+
+  // 2) Si no son las locales, intentar contra el backend (por si hay sesiones reales).
   try {
     const data = await API.auth.login(email, password);
     const token = data && data.token;
@@ -398,25 +413,7 @@ async function authenticateLogin(email, password, remember) {
     };
     return { ok: true, data };
   } catch (err) {
-    // 401/400: credenciales incorrectas en el servidor → no usar demo
-    if (err.status && err.status !== 0) {
-      return { ok: false, error: err.message, server: true };
-    }
-    // Sin red (status 0): respaldo con credenciales demo
-    if (email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() && password === DEMO_CREDENTIALS.password) {
-      // Se guarda un token local simbólico para que la sesión persista sin
-      // red. Cuando el backend vuelva, el token no será válido y se le pedirá
-      // iniciar sesión con las credenciales reales (ver handleUnauthorized).
-      setToken('demo-offline-' + Date.now(), remember);
-      state.auth.isAuthenticated = true;
-      state.auth.user = {
-        email: DEMO_CREDENTIALS.email,
-        name: DEMO_CREDENTIALS.name,
-        role: DEMO_CREDENTIALS.role
-      };
-      return { ok: true, offline: true, data: null };
-    }
-    return { ok: false, error: 'No se pudo conectar con el servidor y las credenciales de respaldo no coinciden.', server: false };
+    return { ok: false, error: err.message || 'Usuario o contraseña incorrectos.' };
   }
 }
 
