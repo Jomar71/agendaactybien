@@ -1,23 +1,42 @@
-const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 const path = require('path');
 
 // Único archivo .env del proyecto, ubicado en backend/
 dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
-// Normaliza la URL de conexión a un formato entendible por mysql2.
-// Acepta tanto DATABASE_URL con prefijo mysql:// como variables DB_*.
+// ============================================================================
+// ADAPTADOR DE BASE DE DATOS DUAL (PostgreSQL + MySQL)
+// ----------------------------------------------------------------------------
+// - En producción (pxxl) se usa PostgreSQL (el que pxxl ya tenía provisionado),
+//   detectado por DATABASE_URL con prefijo postgresql://
+// - En desarrollo local se usa MySQL, detectado por variables DB_* o por
+//   DATABASE_URL con prefijo mysql://
+//
+// Los modelos siempre escriben con placeholders '?' y llaman a
+// pool.query(sql, params) → Promise<{ rows, insertId?, affectedRows? }>.
+// Este adaptador traduce '?' → '$n' cuando el motor es PostgreSQL.
+// ============================================================================
+
+const ENGINE = detectEngine();
+
+function detectEngine() {
+  const url = (process.env.DATABASE_URL || '').trim();
+  if (url) {
+    if (/^postgres(ql)?:\/\//i.test(url)) return 'postgres';
+    if (/^mysql(2)?:\/\//i.test(url)) return 'mysql';
+  }
+  // Sin DATABASE_URL → variables DB_* (entorno local MySQL)
+  return 'mysql';
+}
+
 function buildConfig() {
   const url = (process.env.DATABASE_URL || '').trim();
-
   if (url) {
-    // Si la URL tiene prefijo postgres que el usuario aún no actualizó,
-    // lo tratamos como error claro para que corrija el .env.
-    if (/^postgres(ql)?:\/\//i.test(url)) {
-      throw new Error(
-        'DATABASE_URL apunta a PostgreSQL, pero el backend ahora usa MySQL. ' +
-        'Actualiza DATABASE_URL a un connection string mysql:// en backend/.env'
-      );
+    if (ENGINE === 'postgres') {
+      return {
+        connectionString: url,
+        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+      };
     }
     // mysql://usuario:pass@host:puerto/base
     const clean = url.replace(/^mysql(2)?:\/\//i, '');
@@ -43,28 +62,60 @@ function buildConfig() {
 
 const config = buildConfig();
 
-/** Pool subyacente de mysql2 (promisificado) */
-const mysqlPool = mysql.createPool({
-  ...config,
-  connectionLimit: 10,
-  waitForConnections: true,
-  queueLimit: 0
-});
+let raw;
+let convertPlaceholders;
+let mysqlPool = null;
+let pgPool = null;
 
-/** Convierte '... $1 ... $2' (PostgreSQL) en '... ? ... ?' (MySQL) */
-function convertPlaceholders(sql) {
-  return sql.replace(/\$\d+/g, '?');
+if (ENGINE === 'postgres') {
+  const pg = require('pg');
+  pgPool = new pg.Pool(config);
+  raw = pgPool;
+
+  // Los modelos escriben '?'; PostgreSQL exige $1, $2... → convertimos por orden.
+  convertPlaceholders = (sql) => {
+    let i = 0;
+    return sql.replace(/\?/g, () => `$${++i}`);
+  };
+} else {
+  const mysql = require('mysql2/promise');
+  mysqlPool = mysql.createPool({
+    ...config,
+    connectionLimit: 10,
+    waitForConnections: true,
+    queueLimit: 0
+  });
+  raw = mysqlPool;
+  // MySQL usa '?' tal cual; además convertimos cualquier '$n' heredado de
+  // PostgreSQL (controllers/middleware viejos) a '?'.
+  convertPlaceholders = (sql) => sql.replace(/\$\d+/g, '?');
 }
 
-// Exponemos un objeto `pool` con la MISMA interfaz que tenía el de
-// PostgreSQL: pool.query(sql, params) → Promise<{ rows, insertId? }>.
-// Internamente usa el pool de mysql2 y traduce los $n a ?.
+// A los INSERT de PostgreSQL que no traen RETURNING, les añadimos
+// "RETURNING id" para poder exponer insertId (los modelos re-leen por insertId).
+function ensurePostgresInsertId(sql) {
+  if (ENGINE !== 'postgres') return sql;
+  const trimmed = sql.trim();
+  if (!/^INSERT/i.test(trimmed)) return sql;
+  if (/RETURNING/i.test(trimmed)) return sql;
+  return sql + ' RETURNING id';
+}
+
 const pool = {
   async query(sql, params = []) {
-    const converted = convertPlaceholders(sql);
-    const result = await mysqlPool.execute(converted, params);
-    // SELECT → result[0] es un array de filas; INSERT/UPDATE/DELETE →
-    // result[0] es un ResultSetHeader (tiene insertId / affectedRows).
+    const finalSql = ensurePostgresInsertId(sql);
+    if (ENGINE === 'postgres') {
+      const result = await pgPool.query(convertPlaceholders(finalSql), params);
+      const rows = result.rows || [];
+      const isInsert =
+        /^INSERT/i.test(finalSql.trim()) && rows.length && rows[0].id != null;
+      return {
+        rows,
+        insertId: isInsert ? rows[0].id : null,
+        affectedRows: result.rowCount ?? null
+      };
+    }
+    const result = await mysqlPool.execute(convertPlaceholders(finalSql), params);
     const data = result[0];
     if (Array.isArray(data)) {
       return { rows: data, insertId: null, affectedRows: null };
@@ -75,19 +126,25 @@ const pool = {
       affectedRows: data ? data.affectedRows : null
     };
   },
-  raw: mysqlPool,
-  convertPlaceholders
+  raw,
+  convertPlaceholders,
+  engine: ENGINE
 };
 
 // Verificación de conexión (no bloquea el arranque del servidor)
 (async () => {
   try {
-    const conn = await mysqlPool.getConnection();
-    await conn.query('SELECT 1');
-    conn.release();
-    console.log('✅ Conectado a MySQL correctamente');
+    if (ENGINE === 'postgres') {
+      await pgPool.query('SELECT 1');
+      console.log('✅ Conectado a PostgreSQL correctamente (producción)');
+    } else {
+      const conn = await mysqlPool.getConnection();
+      await conn.query('SELECT 1');
+      conn.release();
+      console.log('✅ Conectado a MySQL correctamente (local)');
+    }
   } catch (err) {
-    console.error('❌ Error conectando a MySQL:', err.message);
+    console.error(`❌ Error conectando a ${ENGINE}:`, err.message);
   }
 })();
 

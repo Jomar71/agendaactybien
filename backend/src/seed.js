@@ -79,7 +79,7 @@ async function seed() {
     const contactsCount = await pool.query(
       'SELECT COUNT(*) AS n FROM contacts WHERE user_id = ?', [userId]
     );
-    if (contactsCount.rows[0].n === 0) {
+    if (Number(contactsCount.rows[0].n) === 0) {
       for (const c of DEFAULT_CONTACTS) {
         await pool.query(
           `INSERT INTO contacts (user_id, nombre, telefono, email, relacion, paciente, notas)
