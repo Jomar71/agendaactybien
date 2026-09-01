@@ -33,9 +33,15 @@ function buildConfig() {
   const url = (process.env.DATABASE_URL || '').trim();
   if (url) {
     if (ENGINE === 'postgres') {
+      // Usar SSL por defecto si el host no es local, salvo que DB_SSL lo
+      // anule explícitamente (evita fallos por TLS en servidores remotos).
+      let useSsl = false;
+      if (process.env.DB_SSL === 'true') useSsl = true;
+      else if (process.env.DB_SSL === 'false') useSsl = false;
+      else if (!/localhost|127\.0\.0\.1|::1/.test(url)) useSsl = true;
       return {
         connectionString: url,
-        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+        ssl: useSsl ? { rejectUnauthorized: false } : undefined
       };
     }
     // mysql://usuario:pass@host:puerto/base
@@ -70,6 +76,10 @@ let pgPool = null;
 if (ENGINE === 'postgres') {
   const pg = require('pg');
   pgPool = new pg.Pool(config);
+  // Evita que un error de conexión de fondo tumbe todo el proceso.
+  pgPool.on('error', (err) => {
+    console.error('Error de conexión PostgreSQL (pool):', err.message);
+  });
   raw = pgPool;
 
   // Los modelos escriben '?'; PostgreSQL exige $1, $2... → convertimos por orden.

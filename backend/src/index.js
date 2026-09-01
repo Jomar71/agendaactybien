@@ -8,6 +8,15 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const pool = require('./config/db');
 
+// Manejadores globales: evitan que un error de fondo (p.ej. de conexión)
+// tumbe el proceso en producción.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
 // Importar rutas activas de Actitud & Bienestar
 const authRoutes = require('./routes/auth');
 const citaRoutes = require('./routes/citas');
