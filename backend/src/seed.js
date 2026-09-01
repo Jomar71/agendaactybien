@@ -1,6 +1,6 @@
 /**
  * Seed / inicialización de la base de datos para la plataforma
- * Actitud & Bienestar.
+ * Actitud & Bienestar (MySQL).
  *
  * Crea (si no existen) los usuarios por defecto y los contactos iniciales.
  * Convierte el email demo del login del frontend en un usuario REAL
@@ -47,45 +47,43 @@ const DEFAULT_CONTACTS = [
 ];
 
 async function seed() {
-  console.log('🌱 Iniciando seed de Actitud & Bienestar...');
+  console.log('🌱 Iniciando seed de Actitud & Bienestar (MySQL)...');
 
   for (const u of DEFAULT_USERS) {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [u.email]);
+    const existing = await pool.query('SELECT id FROM users WHERE email = ?', [u.email]);
     let userId;
 
     if (existing.rows.length) {
       userId = existing.rows[0].id;
       console.log(`ℹ️  Usuario ${u.email} ya existe (id=${userId}).`);
-      // Si existe pero la contraseña no coincide con la esperada, la establecemos
-      const row = await pool.query('SELECT password FROM users WHERE id = $1', [userId]);
+      const row = await pool.query('SELECT password FROM users WHERE id = ?', [userId]);
       const ok = row.rows[0] && (await bcrypt.compare(u.password, row.rows[0].password));
       if (!ok && process.env.SEED_FORCE_PASSWORD === 'true') {
         const salt = await bcrypt.genSalt(10);
         const hash = await bcrypt.hash(u.password, salt);
-        await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, userId]);
+        await pool.query('UPDATE users SET password = ? WHERE id = ?', [hash, userId]);
         console.log(`🔑 Contraseña de ${u.email} restablecida a la predeterminada.`);
       }
     } else {
       const salt = await bcrypt.genSalt(10);
       const hash = await bcrypt.hash(u.password, salt);
       const result = await pool.query(
-        `INSERT INTO users (nombre, email, password, rol)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
+        `INSERT INTO users (nombre, email, password, rol) VALUES (?, ?, ?, ?)`,
         [u.nombre, u.email, hash, 'admin']
       );
-      userId = result.rows[0].id;
+      userId = result.insertId;
       console.log(`✅ Usuario creado: ${u.email} (id=${userId})`);
     }
 
     // Sembrar contactos iniciales SOLO si el usuario aún no tiene ninguno
     const contactsCount = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM contacts WHERE user_id = $1', [userId]
+      'SELECT COUNT(*) AS n FROM contacts WHERE user_id = ?', [userId]
     );
     if (contactsCount.rows[0].n === 0) {
       for (const c of DEFAULT_CONTACTS) {
         await pool.query(
           `INSERT INTO contacts (user_id, nombre, telefono, email, relacion, paciente, notas)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+           VALUES (?,?,?,?,?,?,?)`,
           [userId, c.nombre, c.telefono, c.email, c.relacion, c.paciente, c.notas]
         );
       }
@@ -94,7 +92,7 @@ async function seed() {
   }
 
   console.log('🎉 Seed completado.');
-  await pool.end();
+  await pool.raw.end();
 }
 
 seed().catch((err) => {

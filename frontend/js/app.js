@@ -1035,12 +1035,9 @@ function renderLogin(el) {
     if (result.ok) {
       errorBanner.classList.add('hidden');
       saveAuthState(remember);
-      showToast(
-        result.offline
-          ? `Sin conexión con el servidor. Trabajando con datos locales. 💚`
-          : `¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`,
-        result.offline ? 'error' : 'success'
-      );
+      // Sin avisos de "sin conexión": la app trabaja en modo local o con
+      // el servidor de forma transparente para el usuario.
+      showToast(`¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`, 'success');
       window.location.hash = '#/';
       router();
     } else {

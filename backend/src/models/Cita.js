@@ -4,12 +4,13 @@ const pool = require('../config/db');
  * Modelo de Citas (Mi Agenda).
  * Todas las operaciones están filtradas por user_id para que cada usuario
  * solo acceda a sus propias citas.
+ * (Adaptado a MySQL: sin RETURNING, se relée la fila tras escribir.)
  */
 const Cita = {
   // Obtener todas las citas del usuario
   findAllByUser: async (userId) => {
     const result = await pool.query(
-      'SELECT * FROM citas WHERE user_id = $1 ORDER BY fecha DESC, hora ASC',
+      'SELECT * FROM citas WHERE user_id = ? ORDER BY fecha DESC, hora ASC',
       [userId]
     );
     return result.rows;
@@ -18,7 +19,7 @@ const Cita = {
   // Obtener una cita por id (si pertenece al usuario)
   findById: async (id, userId) => {
     const result = await pool.query(
-      'SELECT * FROM citas WHERE id = $1 AND user_id = $2',
+      'SELECT * FROM citas WHERE id = ? AND user_id = ?',
       [id, userId]
     );
     return result.rows[0];
@@ -26,58 +27,13 @@ const Cita = {
 
   // Crear una cita (userId se asigna del token, nunca del cuerpo)
   create: async (userId, data) => {
-    const result = await pool.query(
+    const insert = await pool.query(
       `INSERT INTO citas
         (user_id, professional_id, professional_name, professional_specialty,
          tutor_nombre, paciente_nombre, paciente_edad, fecha, hora,
          telefono, email, motivo, motivo_detalle, reminder_offset, reminder_sound, estado)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-       RETURNING *`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        userId,
-        data.professionalId || null,
-        data.professionalName || null,
-        data.professionalSpecialty || null,
-        data.tutorNombre || null,
-        data.pacienteNombre || null,
-        data.pacienteEdad || null,
-        data.fecha || null,
-        data.hora || null,
-        data.telefono || null,
-        data.email || null,
-        data.motivo || null,
-        data.motivoDetalle || null,
-        (data.reminderOffset === null || data.reminderOffset === undefined) ? null : data.reminderOffset,
-        data.reminderSound || 'timbre',
-        data.estado || 'confirmada'
-      ]
-    );
-    return result.rows[0];
-  },
-
-  // Actualizar una cita existente (si pertenece al usuario)
-  update: async (id, userId, data) => {
-    const result = await pool.query(
-      `UPDATE citas SET
-         professional_id = COALESCE($3, professional_id),
-         professional_name = COALESCE($4, professional_name),
-         professional_specialty = COALESCE($5, professional_specialty),
-         tutor_nombre = COALESCE($6, tutor_nombre),
-         paciente_nombre = COALESCE($7, paciente_nombre),
-         paciente_edad = COALESCE($8, paciente_edad),
-         fecha = COALESCE($9, fecha),
-         hora = COALESCE($10, hora),
-         telefono = COALESCE($11, telefono),
-         email = COALESCE($12, email),
-         motivo = COALESCE($13, motivo),
-         motivo_detalle = COALESCE($14, motivo_detalle),
-         reminder_offset = COALESCE($15, reminder_offset),
-         reminder_sound = COALESCE($16, reminder_sound),
-         estado = COALESCE($17, estado)
-       WHERE id = $1 AND user_id = $2
-       RETURNING *`,
-      [
-        id,
         userId,
         data.professionalId ?? null,
         data.professionalName ?? null,
@@ -92,9 +48,60 @@ const Cita = {
         data.motivo ?? null,
         data.motivoDetalle ?? null,
         (data.reminderOffset === null || data.reminderOffset === undefined) ? null : data.reminderOffset,
-        data.reminderSound ?? null,
-        data.estado ?? null
+        data.reminderSound || 'timbre',
+        data.estado || 'confirmada'
       ]
+    );
+    const result = await pool.query(
+      'SELECT * FROM citas WHERE id = ? AND user_id = ?',
+      [insert.insertId, userId]
+    );
+    return result.rows[0];
+  },
+
+  // Actualizar una cita existente (si pertenece al usuario)
+  update: async (id, userId, data) => {
+    await pool.query(
+      `UPDATE citas SET
+         professional_id = COALESCE(?, professional_id),
+         professional_name = COALESCE(?, professional_name),
+         professional_specialty = COALESCE(?, professional_specialty),
+         tutor_nombre = COALESCE(?, tutor_nombre),
+         paciente_nombre = COALESCE(?, paciente_nombre),
+         paciente_edad = COALESCE(?, paciente_edad),
+         fecha = COALESCE(?, fecha),
+         hora = COALESCE(?, hora),
+         telefono = COALESCE(?, telefono),
+         email = COALESCE(?, email),
+         motivo = COALESCE(?, motivo),
+         motivo_detalle = COALESCE(?, motivo_detalle),
+         reminder_offset = COALESCE(?, reminder_offset),
+         reminder_sound = COALESCE(?, reminder_sound),
+         estado = COALESCE(?, estado)
+       WHERE id = ? AND user_id = ?`,
+      [
+        data.professionalId ?? null,
+        data.professionalName ?? null,
+        data.professionalSpecialty ?? null,
+        data.tutorNombre ?? null,
+        data.pacienteNombre ?? null,
+        data.pacienteEdad ?? null,
+        data.fecha ?? null,
+        data.hora ?? null,
+        data.telefono ?? null,
+        data.email ?? null,
+        data.motivo ?? null,
+        data.motivoDetalle ?? null,
+        (data.reminderOffset === null || data.reminderOffset === undefined) ? null : data.reminderOffset,
+        data.reminderSound ?? null,
+        data.estado ?? null,
+        id,
+        userId
+      ]
+    );
+    const result = await pool.query(
+      'SELECT * FROM citas WHERE id = ? AND user_id = ?',
+      [id, userId]
     );
     return result.rows[0];
   },
@@ -102,10 +109,10 @@ const Cita = {
   // Eliminar una cita (si pertenece al usuario)
   delete: async (id, userId) => {
     const result = await pool.query(
-      'DELETE FROM citas WHERE id = $1 AND user_id = $2 RETURNING *',
+      'DELETE FROM citas WHERE id = ? AND user_id = ?',
       [id, userId]
     );
-    return result.rows[0];
+    return result.affectedRows ? { id } : null;
   }
 };
 
