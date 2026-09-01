@@ -140,6 +140,14 @@ function clearToken() {
   try { localStorage.removeItem(LS_TOKEN); sessionStorage.removeItem(LS_TOKEN); } catch (e) { /* ignorar */ }
 }
 
+/** Indica si la sesión actual proviene del respaldo local (sin backend).
+ *  Con un token local NO se debe sincronizar contra el servidor, pues ese
+ *  token falso devolvería 401 y provocaría un cierre de sesión no deseado. */
+function isLocalToken() {
+  const t = getToken();
+  return typeof t === 'string' && t.startsWith('local-');
+}
+
 /** Encabezados por defecto, inyectando el token Bearer si existe */
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -379,24 +387,11 @@ function writeLS(key, value) {
 }
 
 /** Función de autenticación real con JWT contra el backend.
- *  Si el backend no está disponible, cae a las credenciales demo actuales
- *  para que la app siga siendo usable sin conexión. */
+ *  - Prioriza el backend: si responde, crea una sesión real con JWT.
+ *  - Solo si el servidor NO está disponible (sin red o caído) cae a la
+ *    cuenta local de respaldo para que la app siga siendo usable offline. */
 async function authenticateLogin(email, password, remember) {
-  // 1) Validación local SIEMPRE disponible: si las credenciales coinciden
-  //    con las de la cuenta local, se inicia sesión sin depender del backend.
-  if (email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() && password === DEMO_CREDENTIALS.password) {
-    setToken('local-' + Date.now(), remember);
-    state.auth.isAuthenticated = true;
-    state.auth.user = {
-      email: DEMO_CREDENTIALS.email,
-      name: DEMO_CREDENTIALS.name,
-      role: DEMO_CREDENTIALS.role
-    };
-    try { await API.auth.login(email, password); setBackendOnline(true); } catch (e) { setBackendOnline(false); }
-    return { ok: true, offline: true, data: null };
-  }
-
-  // 2) Si no son las locales, intentar contra el backend (por si hay sesiones reales).
+  // 1) Intentar SIEMPRE contra el backend primero (sesión real con JWT)
   try {
     const data = await API.auth.login(email, password);
     const token = data && data.token;
@@ -411,8 +406,26 @@ async function authenticateLogin(email, password, remember) {
       name: user.nombre || 'Usuario',
       role: user.rol || 'admin'
     };
+    setBackendOnline(true);
     return { ok: true, data };
   } catch (err) {
+    // 2) Respaldo local SOLO cuando el backend es inalcanzable
+    //    (sin red / servidor caído) y las credenciales coinciden.
+    const unreachable = !err.status || err.status === 0;
+    if (unreachable &&
+        email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() &&
+        password === DEMO_CREDENTIALS.password) {
+      setToken('local-' + Date.now(), remember);
+      state.auth.isAuthenticated = true;
+      state.auth.user = {
+        email: DEMO_CREDENTIALS.email,
+        name: DEMO_CREDENTIALS.name,
+        role: DEMO_CREDENTIALS.role
+      };
+      setBackendOnline(false);
+      return { ok: true, offline: true, data: null };
+    }
+    setBackendOnline(false);
     return { ok: false, error: err.message || 'Usuario o contraseña incorrectos.' };
   }
 }
@@ -516,7 +529,7 @@ function saveAppointments() {
 
 /** Descarga las citas del backend y reemplaza la copia local (optimista). */
 async function syncAppointmentsFromServer() {
-  if (!getToken()) return;
+  if (!getToken() || isLocalToken()) return;
   try {
     const list = await API.citas.getAll();
     if (Array.isArray(list)) {
@@ -533,7 +546,7 @@ async function syncAppointmentsFromServer() {
 /** Envía cambios locales al backend. Los nuevos se crean y se recalculan sus
  *  ids; los existentes se actualizan; los que faltan en el backend se borran. */
 async function syncAppointmentsToServer() {
-  if (!getToken() || !state.appointments) return;
+  if (!getToken() || isLocalToken() || !state.appointments) return;
   try {
     let remote = await API.citas.getAll();
     if (!Array.isArray(remote)) remote = [];
@@ -578,7 +591,7 @@ function saveTasks() {
 }
 
 async function syncTasksFromServer() {
-  if (!getToken()) return;
+  if (!getToken() || isLocalToken()) return;
   try {
     const list = await API.tareas.getAll();
     if (Array.isArray(list)) {
@@ -592,7 +605,7 @@ async function syncTasksFromServer() {
 }
 
 async function syncTasksToServer() {
-  if (!getToken() || !state.tasks) return;
+  if (!getToken() || isLocalToken() || !state.tasks) return;
   try {
     let remote = await API.tareas.getAll();
     if (!Array.isArray(remote)) remote = [];
@@ -641,7 +654,7 @@ function saveContacts() {
 }
 
 async function syncContactsFromServer() {
-  if (!getToken()) return;
+  if (!getToken() || isLocalToken()) return;
   try {
     const list = await API.contactos.getAll();
     if (Array.isArray(list)) {
@@ -656,7 +669,7 @@ async function syncContactsFromServer() {
 }
 
 async function syncContactsToServer() {
-  if (!getToken() || !state.contacts) return;
+  if (!getToken() || isLocalToken() || !state.contacts) return;
   try {
     let remote = await API.contactos.getAll();
     if (!Array.isArray(remote)) remote = [];
@@ -925,20 +938,13 @@ function renderLogin(el) {
           <p>Plataforma de Gestión y Atención Psicológica</p>
         </div>
 
-        <div class="auth-demo-badge" role="note" aria-label="Credenciales de demostración">
-          <div>🔑 <strong>Credenciales de prueba:</strong></div>
-          <div>Usuario: <code>${DEMO_CREDENTIALS.email}</code></div>
-          <div>Contraseña: <code>${DEMO_CREDENTIALS.password}</code></div>
-        </div>
-
         <div id="auth-error" class="auth-error-banner hidden" role="alert" aria-live="polite"></div>
 
         <form id="login-form" class="auth-form" novalidate aria-label="Formulario de inicio de sesión">
           <div class="form-group" style="margin-bottom:0">
             <label for="login-email">Usuario o Correo Electrónico <span aria-hidden="true" style="color:var(--danger)">*</span></label>
-            <input type="email" id="login-email" name="email"
-                   placeholder="ejemplo@terapia.com"
-                   value="${DEMO_CREDENTIALS.email}"
+            <input type="text" id="login-email" name="email"
+                   placeholder="tu_correo@terapia.com"
                    aria-required="true"
                    autocomplete="username" required>
           </div>
@@ -947,7 +953,6 @@ function renderLogin(el) {
             <label for="login-password">Contraseña <span aria-hidden="true" style="color:var(--danger)">*</span></label>
             <input type="password" id="login-password" name="password"
                    placeholder="••••••••"
-                   value="${DEMO_CREDENTIALS.password}"
                    aria-required="true"
                    autocomplete="current-password" required>
           </div>
@@ -1000,7 +1005,7 @@ function renderLogin(el) {
         return;
       }
       closeModal();
-      showToast(`✓ Instrucciones enviadas a ${email} (Simulado: Tu clave es 123456)`, 'success');
+      showToast(`✓ Instrucciones enviadas a ${email}. Revisa tu bandeja de entrada.`, 'success');
     });
   });
 
@@ -1032,7 +1037,7 @@ function renderLogin(el) {
       saveAuthState(remember);
       showToast(
         result.offline
-          ? `⚠️ Sin conexión. Entraste con credenciales de respaldo. 💚`
+          ? `Sin conexión con el servidor. Trabajando con datos locales. 💚`
           : `¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`,
         result.offline ? 'error' : 'success'
       );
