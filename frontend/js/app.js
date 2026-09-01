@@ -148,27 +148,14 @@ function getAuthHeaders() {
   return headers;
 }
 
-/** Muestra u oculta el aviso de "modo respaldo local" cuando el backend cae */
+/** Aviso de "modo respaldo local" desactivado: la app siempre funciona
+ *  con copia local y se sincroniza en segundo plano sin letreros. */
 function updateBackendBanner() {
-  let banner = document.getElementById('offline-banner');
-  if (backendOnline) {
-    if (banner) banner.remove();
-    return;
-  }
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'offline-banner';
-    banner.setAttribute('role', 'status');
-    banner.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#f5a623;color:#2b1f00;text-align:center;padding:8px 12px;font-size:0.85rem;font-weight:700;font-family:Inter,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.15)';
-    document.body.appendChild(banner);
-  }
-  banner.textContent = '⚠️ Sin conexión con el servidor. Usando copia local (los cambios se sincronizarán cuando haya conexión).';
+  try { document.getElementById('offline-banner')?.remove(); } catch (e) { /* ignorar */ }
 }
 
 function setBackendOnline(online) {
-  const changed = backendOnline !== online;
   backendOnline = online;
-  if (changed) updateBackendBanner();
 }
 
 /** Cierra la sesión ante un 401 (token inválido/expirado) y redirige al login */
