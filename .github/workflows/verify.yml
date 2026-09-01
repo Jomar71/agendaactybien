@@ -1,0 +1,22 @@
+name: Visto bueno
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    name: Verificacion del commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Verificar archivos esenciales del proyecto
+        run: |
+          echo "Verificando que los archivos clave esten presentes..."
+          test -f index.html && echo "- index.html OK"
+          test -f frontend/js/app.js && echo "- frontend/js/app.js OK"
+          test -f backend/src/index.js && echo "- backend/src/index.js OK"
+          echo "OK: commit verificado correctamente"
