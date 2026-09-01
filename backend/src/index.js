@@ -6,6 +6,8 @@ const path = require('path');
 // Cargar variables de entorno desde backend/.env
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
+const pool = require('./config/db');
+
 // Importar rutas activas de Actitud & Bienestar
 const authRoutes = require('./routes/auth');
 const citaRoutes = require('./routes/citas');
@@ -65,18 +67,27 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ---------------------------------------------------------------------
+// Frontend estático (mismo proceso que el API)
+// Se sirve la raíz del repo (index.html) y la carpeta frontend/.
+// Así el backend es autocontenido: web + API en un solo servidor.
+// ---------------------------------------------------------------------
+const repoRoot = path.join(__dirname, '..', '..');
+app.use(express.static(repoRoot));
+
 // Rutas de la API
 app.use('/api/auth', authRoutes);
 app.use('/api/citas', citaRoutes);
 app.use('/api/tareas', tareaRoutes);
 app.use('/api/contactos', contactoRoutes);
 
-// Endpoint raíz de diagnóstico / salud
-app.get('/', (req, res) => {
+// Endpoint de diagnóstico / salud
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'online',
     app: 'Actitud & Bienestar API',
     version: '1.0.0',
+    engine: pool.engine,
     endpoints: [
       '/api/auth',
       '/api/citas',
