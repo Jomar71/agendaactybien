@@ -107,7 +107,7 @@ app.use((err, req, res, next) => {
   console.error('Error no controlado:', err.stack || err.message);
   res.status(500).json({
     message: 'Error interno del servidor',
-    error: process.env.NODE_ENV === 'production' ? undefined : err.message
+    error: err.message
   });
 });
 
