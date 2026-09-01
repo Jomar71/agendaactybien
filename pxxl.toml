@@ -1,0 +1,13 @@
+# Configuración de despliegue para Pxxl
+# Fuerza a Pxxl a ejecutar el backend Node/Express como Web Service
+# (no como sitio estático), de modo que el mismo proceso sirva el
+# frontend de la raíz y la API /api/*.
+
+[build]
+language = "javascript"
+framework = "express"
+packageManager = "npm"
+installCommand = "npm install --prefix backend"
+buildCommand = ""
+startCommand = "npm start"
+port = 4000
