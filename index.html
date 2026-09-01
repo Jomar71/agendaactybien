@@ -9,6 +9,11 @@
   <meta name="keywords" content="psicología infantil, psicología juvenil, terapia emocional, agendamiento citas, tareas terapéuticas, Actitud y Bienestar">
   <meta name="theme-color" content="#2BABB0">
   <title>Actitud & Bienestar | Atención Psicológica Infantil y Juvenil</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="A&B">
+  <link rel="apple-touch-icon" href="logo/icon-192.png">
 
   <!-- Preconnect para Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -187,6 +192,19 @@
       const backupScript = document.createElement('script');
       backupScript.src = 'js/app.js?v=5.0.0';
       document.body.appendChild(backupScript);
+    }
+  </script>
+
+  <!-- Registro del Service Worker (habilita PWA / offline) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          console.log('Service Worker registrado:', reg.scope);
+        }).catch(function (err) {
+          console.warn('No se pudo registrar el Service Worker:', err);
+        });
+      });
     }
   </script>
 </body>
