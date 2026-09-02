@@ -82,6 +82,29 @@ app.use(express.urlencoded({ extended: true }));
 // Así el backend es autocontenido: web + API en un solo servidor.
 // ---------------------------------------------------------------------
 const repoRoot = path.join(__dirname, '..', '..');
+
+// Bloquear archivos y carpetas sensibles del repo que nunca deben servirse
+const BLOCKED_PATH_PATTERNS = [
+  /^\/backend(\/|$)/,
+  /^\/node_modules(\/|$)/,
+  /^\/database(\/|$)/,
+  /^\/\.env(\/|$)/,
+  /^\/\.git(\/|$)/,
+  /^\/package\.json$/,
+  /^\/package-lock\.json$/,
+  /^\/pxxl\.toml$/,
+  /^\/logs(\/|$)/,
+  /^\/\.vite(\/|$)/
+];
+
+app.use((req, res, next) => {
+  const p = req.path;
+  if (BLOCKED_PATH_PATTERNS.some(re => re.test(p))) {
+    return res.status(404).json({ message: 'Recurso no encontrado' });
+  }
+  next();
+});
+
 app.use(express.static(repoRoot));
 
 // Rutas de la API

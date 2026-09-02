@@ -3,7 +3,7 @@
    Solo almacena en caché los archivos de la "shell" de la app;
    NO intercepta las peticiones al API para no interferir con la
    sincronización con el backend. */
-const CACHE = 'ayb-v3';
+const CACHE = 'ayb-v4';
 
 const SHELL = [
   './',

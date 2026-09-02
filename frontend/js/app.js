@@ -2,7 +2,7 @@
    ACTITUD & BIENESTAR – GESTIÓN TERAPÉUTICA INFANTIL Y JUVENIL
    app.js – Lógica principal de la SPA con Autenticación, Mi Directorio,
             Avisos con Timbre, Mis Tareas, Mi Agenda y Mi Historial
-   Versión: 3.2.0
+   Versión: 4.0.0 (backend-first: REST + JWT, servidor autoritativo)
    ===================================================================== */
 
 /* =====================================================================
@@ -97,12 +97,13 @@ const DEFAULT_CONTACTS = [
    - Respaldo automático en localStorage si el backend no responde
    ===================================================================== */
 
-/** Constantes de almacenamiento local */
-const LS_TOKEN        = 'ayb_token';
-const LS_SESSION      = 'ayb_session';
-const LS_APPOINTMENTS = 'ayb_appointments';
-const LS_TASKS        = 'ayb_tasks';
-const LS_CONTACTS     = 'ayb_contacts';
+/** Constantes de almacenamiento local.
+ *  IMPORTANTE: los DATOS (citas, tareas, contactos) viven SOLO en el backend.
+ *  localStorage únicamente guarda credenciales (token/sesión) y preferencias
+ *  locales del dispositivo (sonidos subidos, avisos ya enviados, seed). */
+const LS_TOKEN           = 'ayb_token';
+const LS_SESSION         = 'ayb_session';
+const LS_CONTACTS_SEEDED = 'ayb_contacts_seeded';
 
 /**
  * URL base del backend. Prioridad de configuración:
@@ -119,10 +120,10 @@ const BACKEND_API_BASE = (function () {
   return 'http://localhost:4000';
 })();
 
-/** Estado de conexión del backend (para mostrar un aviso al usar respaldo local) */
+/** Estado de conexión del backend (mantenido únicamente para diagnóstico) */
 let backendOnline = true;
 
-/** Lee/elimina el token JWT actual de localStorage o sessionStorage */
+/** Lee el token JWT actual de localStorage o sessionStorage */
 function getToken() {
   try {
     return localStorage.getItem(LS_TOKEN) || sessionStorage.getItem(LS_TOKEN) || null;
@@ -140,14 +141,6 @@ function clearToken() {
   try { localStorage.removeItem(LS_TOKEN); sessionStorage.removeItem(LS_TOKEN); } catch (e) { /* ignorar */ }
 }
 
-/** Indica si la sesión actual proviene del respaldo local (sin backend).
- *  Con un token local NO se debe sincronizar contra el servidor, pues ese
- *  token falso devolvería 401 y provocaría un cierre de sesión no deseado. */
-function isLocalToken() {
-  const t = getToken();
-  return typeof t === 'string' && t.startsWith('local-');
-}
-
 /** Encabezados por defecto, inyectando el token Bearer si existe */
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -156,11 +149,9 @@ function getAuthHeaders() {
   return headers;
 }
 
-/** Aviso de "modo respaldo local" desactivado: la app siempre funciona
- *  con copia local y se sincroniza en segundo plano sin letreros. */
-function updateBackendBanner() {
-  try { document.getElementById('offline-banner')?.remove(); } catch (e) { /* ignorar */ }
-}
+/** Aviso de "modo respaldo local" eliminado: la app siempre trabaja contra
+ *  el backend. Esta función queda como no-op por compatibilidad. */
+function updateBackendBanner() { /* no-op */ }
 
 function setBackendOnline(online) {
   backendOnline = online;
@@ -207,7 +198,7 @@ async function apiFetch(path, { method = 'GET', body, timeout = 15000 } = {}) {
   } catch (err) {
     clearTimeout(timer);
     setBackendOnline(false);
-    const e = new Error('No se pudo conectar con el servidor. Se ha activado la copia local; verifica tu conexión e inténtalo de nuevo.');
+    const e = new Error('No se pudo conectar con el servidor. Verifica tu conexión e inténtalo de nuevo.');
     e.status = 0;
     throw e;
   }
@@ -373,61 +364,66 @@ function contactToServer(c) {
   };
 }
 
-/** Lee una clave de localStorage de forma segura */
-function readLS(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
+/** Correo del usuario autenticado (claves por usuario en localStorage) */
+function sessionEmail() {
+  const u = state.auth && state.auth.user;
+  return u && u.email ? String(u.email).toLowerCase() : 'anonimo';
 }
 
-/** Escribe una clave en localStorage de forma segura */
-function writeLS(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.error('Error guardando en localStorage:', e); }
-}
-
-/** Función de autenticación real con JWT contra el backend.
- *  - Prioriza el backend: si responde, crea una sesión real con JWT.
- *  - Solo si el servidor NO está disponible (sin red o caído) cae a la
- *    cuenta local de respaldo para que la app siga siendo usable offline. */
-async function authenticateLogin(email, password, remember) {
-  // 1) Intentar SIEMPRE contra el backend primero (sesión real con JWT)
+/** Envuelve un cargador de datos en try/catch para que las vistas puedan
+ *  mostrar un banner de error en lugar de romper la pantalla. Devuelve el
+ *  mensaje de error (o cadena vacía si todo fue bien). */
+async function catchLoad(loader, { quietly = false } = {}) {
   try {
-    const data = await API.auth.login(email, password);
-    const token = data && data.token;
-    const user = (data && data.user) || null;
-    if (!token || !user) {
-      throw new Error('El servidor no devolvió una sesión válida.');
+    await loader();
+    return '';
+  } catch (e) {
+    // Un 401 ya redirige al login; no duplicar el mensaje
+    if (e && (e.status === 401 || e.status === 403)) return '';
+    if (quietly) {
+      if (e && e.status && e.status !== 0) console.warn('Carga de datos fallida:', e.message);
+      return '';
     }
-    setToken(token, remember);
-    state.auth.isAuthenticated = true;
-    state.auth.user = {
-      email: user.email,
-      name: user.nombre || 'Usuario',
-      role: user.rol || 'admin'
-    };
-    setBackendOnline(true);
-    return { ok: true, data };
-  } catch (err) {
-    // 2) Respaldo local SOLO cuando el backend es inalcanzable
-    //    (sin red / servidor caído) y las credenciales coinciden.
-    const unreachable = !err.status || err.status === 0;
-    if (unreachable &&
-        email.toLowerCase() === DEMO_CREDENTIALS.email.toLowerCase() &&
-        password === DEMO_CREDENTIALS.password) {
-      setToken('local-' + Date.now(), remember);
-      state.auth.isAuthenticated = true;
-      state.auth.user = {
-        email: DEMO_CREDENTIALS.email,
-        name: DEMO_CREDENTIALS.name,
-        role: DEMO_CREDENTIALS.role
-      };
-      setBackendOnline(false);
-      return { ok: true, offline: true, data: null };
-    }
-    setBackendOnline(false);
-    return { ok: false, error: err.message || 'Usuario o contraseña incorrectos.' };
+    return (e && e.message) || 'No se pudieron cargar los datos. Inténtalo de nuevo.';
   }
+}
+
+/** HTML del loader mostrado mientras se obtienen datos del backend */
+function pageLoadingHTML() {
+  return '<div class="loader" role="status" aria-label="Cargando datos del servidor…">' +
+         '<div class="spinner" aria-hidden="true"></div></div>';
+}
+
+/** Banner de error de datos (visible en la parte superior de la vista) */
+function dataErrorBannerHTML(message) {
+  const msg = escapeHtml(message || 'No se pudieron cargar los datos. Inténtalo de nuevo.');
+  return `
+    <div role="alert" aria-live="polite"
+         style="background:#fdecea;border:1px solid #f5c2bf;color:#b3261e;padding:12px 16px;border-radius:10px;margin:14px 4px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>⚠️ ${msg}</span>
+      <button type="button" class="btn btn-sm" style="background:#b3261e;color:#fff" onclick="router()">Reintentar</button>
+    </div>`;
+}
+
+/** Autenticación REAL contra el backend: POST /api/auth/login → JWT.
+ *  Si el servidor no responde o las credenciales son inválidas, devuelve
+ *  un error claro (NUNCA se cae a una cuenta local de respaldo). */
+async function authenticateLogin(email, password, remember) {
+  const data = await API.auth.login(email, password);
+  const token = data && data.token;
+  const user = (data && data.user) || null;
+  if (!token || !user) {
+    throw new Error('El servidor no devolvió una sesión válida.');
+  }
+  setToken(token, remember);
+  state.auth.isAuthenticated = true;
+  state.auth.user = {
+    email: user.email,
+    name: user.nombre || 'Usuario',
+    role: user.rol || 'admin'
+  };
+  setBackendOnline(true);
+  return { ok: true, data };
 }
 
 /* =====================================================================
@@ -480,7 +476,7 @@ function loadAuthState() {
     if (raw && hasToken) {
       const parsed = JSON.parse(raw);
       state.auth.isAuthenticated = true;
-      state.auth.user = parsed.user || { email: DEMO_CREDENTIALS.email, name: DEMO_CREDENTIALS.name };
+      state.auth.user = (parsed && parsed.user) || null;
     } else {
       state.auth.isAuthenticated = false;
       state.auth.user = null;
@@ -512,191 +508,218 @@ function clearAuthState() {
   state.auth.user = null;
 }
 
-/*** CITAS -----------------------------------------------------------------
- * Modelo "local-first": localStorage es la fuente inmediata para la UI y se
- * sincroniza con el backend cuando hay conexión. Si el backend falla (sin
- * red o error 4xx/5xx no crítico), la app continúa con la copia local.
- * ---------------------------------------------------------------------- */
-function loadAppointments() {
-  state.appointments = readLS(LS_APPOINTMENTS, []);
-  syncAppointmentsFromServer();
+/* =====================================================================
+   3.b CARGA Y GUARDADO EN EL BACKEND (SERVIDOR AUTORITATIVO)
+   =====================================================================
+   La app ya NO usa localStorage como almacén de datos: cada vista carga
+   sus registros vía GET y cada cambio se envía vía POST/PUT/DELETE al
+   backend (REST + JWT). localStorage solo conserva credenciales y
+   preferencias locales. Si el servidor falla, se muestra un mensaje claro
+   y las vistas permiten reintentar.
+   ===================================================================== */
+
+/** Candado por recurso: serializa guardados consecutivos para evitar
+ *  carreras cuando varias acciones se disparan casi a la vez. */
+function makeSyncGuard() {
+  let chain = Promise.resolve();
+  return (task) => {
+    const run = chain.then(task, task);
+    chain = run.catch(() => {});
+    return run;
+  };
+}
+const guardCitas     = makeSyncGuard();
+const guardTareas    = makeSyncGuard();
+const guardContactos = makeSyncGuard();
+
+/** Muestra un toast y recarga la vista actual si un guardado falla, de modo
+ *  que la UI vuelva a reflejar lo que realmente guarda el servidor. */
+function reportSaveError(e) {
+  const msg = (e && e.message) || 'No se pudo guardar: revisa tu conexión e inténtalo de nuevo.';
+  showToast('⚠️ ' + msg, 'error');
+  if (typeof router === 'function') { try { router(); } catch (_) { /* noop */ } }
 }
 
+/*** CITAS (Mi Agenda) ------------------------------------------------------
+ * GET /api/citas        → carga las citas del usuario
+ * saveAppointments()     → reconcilia el estado actual con el backend.
+ * ------------------------------------------------------------------------ */
+async function loadAppointments() {
+  if (!getToken()) { state.appointments = []; return state.appointments; }
+  const list = await API.citas.getAll();
+  state.appointments = Array.isArray(list) ? list.map(normalizeCitaFromServer) : [];
+  setBackendOnline(true);
+  return state.appointments;
+}
+
+/** Envía las citas al backend: crea las nuevas, actualiza las existentes y
+ *  borra en el servidor las que ya no existen en el estado local. */
 function saveAppointments() {
-  writeLS(LS_APPOINTMENTS, state.appointments);
-  syncAppointmentsToServer();
-}
+  const run = guardCitas(async () => {
+    if (!getToken()) return state.appointments;
 
-/** Descarga las citas del backend y reemplaza la copia local (optimista). */
-async function syncAppointmentsFromServer() {
-  if (!getToken() || isLocalToken()) return;
-  try {
-    const list = await API.citas.getAll();
-    if (Array.isArray(list)) {
-      state.appointments = list.map(normalizeCitaFromServer);
-      writeLS(LS_APPOINTMENTS, state.appointments);
-      setBackendOnline(true);
-    }
-  } catch (e) {
-    // 401 ya redirige; los demás errores dejan intacta la copia local
-    if (e.status && e.status !== 401) setBackendOnline(false);
-  }
-}
-
-/** Envía cambios locales al backend. Los nuevos se crean y se recalculan sus
- *  ids; los existentes se actualizan; los que faltan en el backend se borran. */
-async function syncAppointmentsToServer() {
-  if (!getToken() || isLocalToken() || !state.appointments) return;
-  try {
     let remote = await API.citas.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
 
-    // Actualizar/crear cada cita local
     for (const a of state.appointments) {
-      const isNew = !remoteIds.has(String(a.id));
-      if (isNew) {
-        const created = await API.citas.create(citaToServer(a));
-        if (created && created.id) a.id = String(created.id);
-      } else {
+      if (remoteIds.has(String(a.id))) {
         await API.citas.update(a.id, citaToServer(a));
+      } else {
+        const created = await API.citas.create(citaToServer(a));
+        if (created && created.id != null) a.id = String(created.id);
       }
     }
 
-    // Eliminar en el backend las citas que ya no existen en local
     const localIds = new Set(state.appointments.map(a => String(a.id)));
     for (const r of remote) {
       if (!localIds.has(String(r.id))) {
-        try { await API.citas.remove(r.id); } catch (e) { /* ignorar borrado remoto */ }
+        try { await API.citas.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
-    writeLS(LS_APPOINTMENTS, state.appointments);
     setBackendOnline(true);
-  } catch (e) {
-    if (e.status && e.status !== 401) setBackendOnline(false);
-  }
+    return state.appointments;
+  });
+  run.catch(reportSaveError);
+  return run;
 }
 
-/*** TAREAS ---------------------------------------------------------------- */
-function loadTasks() {
-  state.tasks = readLS(LS_TASKS, []);
-  syncTasksFromServer();
+/*** TAREAS (Mis Tareas) ---------------------------------------------------- */
+async function loadTasks() {
+  if (!getToken()) { state.tasks = []; return state.tasks; }
+  const list = await API.tareas.getAll();
+  state.tasks = Array.isArray(list) ? list.map(normalizeTaskFromServer) : [];
+  setBackendOnline(true);
+  return state.tasks;
 }
 
 function saveTasks() {
-  writeLS(LS_TASKS, state.tasks);
-  syncTasksToServer();
-}
+  const run = guardTareas(async () => {
+    if (!getToken()) return state.tasks;
 
-async function syncTasksFromServer() {
-  if (!getToken() || isLocalToken()) return;
-  try {
-    const list = await API.tareas.getAll();
-    if (Array.isArray(list)) {
-      state.tasks = list.map(normalizeTaskFromServer);
-      writeLS(LS_TASKS, state.tasks);
-      setBackendOnline(true);
-    }
-  } catch (e) {
-    if (e.status && e.status !== 401) setBackendOnline(false);
-  }
-}
-
-async function syncTasksToServer() {
-  if (!getToken() || isLocalToken() || !state.tasks) return;
-  try {
     let remote = await API.tareas.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
 
     for (const t of state.tasks) {
-      const isNew = !remoteIds.has(String(t.id));
-      if (isNew) {
-        const created = await API.tareas.create(taskToServer(t));
-        if (created && created.id) t.id = String(created.id);
-      } else {
+      if (remoteIds.has(String(t.id))) {
         await API.tareas.update(t.id, taskToServer(t));
+      } else {
+        const created = await API.tareas.create(taskToServer(t));
+        if (created && created.id != null) t.id = String(created.id);
       }
     }
 
     const localIds = new Set(state.tasks.map(t => String(t.id)));
     for (const r of remote) {
       if (!localIds.has(String(r.id))) {
-        try { await API.tareas.remove(r.id); } catch (e) { /* ignorar */ }
+        try { await API.tareas.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
-    writeLS(LS_TASKS, state.tasks);
     setBackendOnline(true);
-  } catch (e) {
-    if (e.status && e.status !== 401) setBackendOnline(false);
-  }
+    return state.tasks;
+  });
+  run.catch(reportSaveError);
+  return run;
 }
 
-/*** CONTACTOS ------------------------------------------------------------- */
-function loadContacts() {
-  const saved = readLS(LS_CONTACTS, null);
-  if (saved) {
-    state.contacts = saved;
-  } else {
-    state.contacts = [...DEFAULT_CONTACTS];
-    writeLS(LS_CONTACTS, state.contacts);
+/*** CONTACTOS (Mi Directorio) ---------------------------------------------- */
+async function loadContacts() {
+  if (!getToken()) { state.contacts = []; return state.contacts; }
+  const list = await API.contactos.getAll();
+  state.contacts = Array.isArray(list) ? list.map(normalizeContactFromServer) : [];
+  setBackendOnline(true);
+
+  // Si es la primera vez del usuario, siembra los contactos predeterminados.
+  if (state.contacts.length === 0) await seedDefaultContacts();
+  return state.contacts;
+}
+
+/** Siembra en el backend los contactos iniciales, una sola vez por usuario. */
+async function seedDefaultContacts() {
+  if (!getToken()) return;
+  const flagKey = LS_CONTACTS_SEEDED + ':' + sessionEmail();
+  if (localStorage.getItem(flagKey)) return;
+  try {
+    for (const c of DEFAULT_CONTACTS) {
+      const created = await API.contactos.create(c);
+      if (created && created.id != null) state.contacts.push(normalizeContactFromServer(created));
+    }
+    localStorage.setItem(flagKey, String(Date.now()));
+  } catch (e) {
+    console.warn('No se pudieron crear los contactos iniciales:', e);
   }
-  syncContactsFromServer();
 }
 
 function saveContacts() {
-  writeLS(LS_CONTACTS, state.contacts);
-  syncContactsToServer();
-}
+  const run = guardContactos(async () => {
+    if (!getToken()) return state.contacts;
 
-async function syncContactsFromServer() {
-  if (!getToken() || isLocalToken()) return;
-  try {
-    const list = await API.contactos.getAll();
-    if (Array.isArray(list)) {
-      // Si el backend devuelve datos, el servidor es la fuente autoritativa.
-      state.contacts = list.map(normalizeContactFromServer);
-      writeLS(LS_CONTACTS, state.contacts);
-      setBackendOnline(true);
-    }
-  } catch (e) {
-    if (e.status && e.status !== 401) setBackendOnline(false);
-  }
-}
-
-async function syncContactsToServer() {
-  if (!getToken() || isLocalToken() || !state.contacts) return;
-  try {
     let remote = await API.contactos.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
 
     for (const c of state.contacts) {
-      const isNew = !remoteIds.has(String(c.id));
-      if (isNew) {
-        const created = await API.contactos.create(contactToServer(c));
-        if (created && created.id) c.id = String(created.id);
-      } else {
+      if (remoteIds.has(String(c.id))) {
         await API.contactos.update(c.id, contactToServer(c));
+      } else {
+        const created = await API.contactos.create(contactToServer(c));
+        if (created && created.id != null) c.id = String(created.id);
       }
     }
 
     const localIds = new Set(state.contacts.map(c => String(c.id)));
     for (const r of remote) {
       if (!localIds.has(String(r.id))) {
-        try { await API.contactos.remove(r.id); } catch (e) { /* ignorar */ }
+        try { await API.contactos.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
-    writeLS(LS_CONTACTS, state.contacts);
     setBackendOnline(true);
-  } catch (e) {
-    if (e.status && e.status !== 401) setBackendOnline(false);
+    return state.contacts;
+  });
+  run.catch(reportSaveError);
+  return run;
+}
+
+/** Carga citas + tareas + contactos desde el backend (promesa conjunta). */
+async function loadAllData() {
+  return Promise.all([loadAppointments(), loadTasks(), loadContacts()]);
+}
+
+/** Sincroniza el tutor de una cita recién guardada con Mi Directorio:
+ *  si ya existe un contacto con el mismo teléfono/email lo actualiza en el
+ *  backend; si no, crea el contacto. Lanza error si el servidor lo rechaza. */
+async function upsertContactForAppointment(appt) {
+  if (!getToken()) return;
+  let current = state.contacts;
+  if (!Array.isArray(current)) current = [];
+  try { current = await loadContacts(); } catch (_) { /* usa el estado local */ }
+
+  const existing = current.find(c =>
+    c.telefono === appt.telefono ||
+    (appt.email && c.email && c.email.toLowerCase() === appt.email.toLowerCase())
+  );
+
+  const newData = {
+    nombre: appt.tutorNombre,
+    telefono: appt.telefono,
+    email: appt.email,
+    relacion: 'Tutor',
+    paciente: `${appt.pacienteNombre}${appt.pacienteEdad ? ` (${appt.pacienteEdad} años)` : ''}`,
+    notas: `Actualizado desde Mi Agenda con ${appt.professionalName}. Motivo: ${appt.motivo}`
+  };
+
+  if (existing) {
+    await API.contactos.update(existing.id, contactToServer(Object.assign({}, existing, newData)));
+  } else {
+    const created = await API.contactos.create(contactToServer(Object.assign({ relacion: 'Tutor' }, newData)));
+    if (created && created.id != null) state.contacts.unshift(normalizeContactFromServer(created));
   }
 }
 
@@ -913,12 +936,22 @@ function router() {
   setActiveNav(hash);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  if      (hash === '#/' || hash === '' || hash === '#/inicio') renderHome(content);
-  else if (hash === '#/agendar')                                 renderAppointment(content);
-  else if (hash === '#/tareas')                                  renderTasks(content);
-  else if (hash === '#/historial')                               renderHistory(content);
-  else if (hash === '#/directorio')                              renderDirectory(content);
-  else                                                           renderHome(content);
+  // Mostrar el loader mientras la vista carga sus datos desde el backend
+  content.innerHTML = pageLoadingHTML();
+
+  const view =
+    (hash === '#/' || hash === '' || hash === '#/inicio')  ? renderHome
+    : (hash === '#/agendar')                                 ? renderAppointment
+    : (hash === '#/tareas')                                  ? renderTasks
+    : (hash === '#/historial')                               ? renderHistory
+    : (hash === '#/directorio')                              ? renderDirectory
+    :                                                          renderHome;
+
+  // Las vistas son async: cualquier error de carga/red se muestra en pantalla
+  view(content).catch((err) => {
+    console.error('Error al renderizar la vista:', err);
+    content.innerHTML = dataErrorBannerHTML(err && err.message);
+  });
 }
 
 window.addEventListener('hashchange', router);
@@ -1025,25 +1058,29 @@ function renderLogin(el) {
     }
 
     // Autenticación REAL contra el backend (POST /api/auth/login → JWT).
-    // Si el backend no responde, cae a las credenciales demo como respaldo.
+    // No existe respaldo offline: si el servidor falla, se muestra el error.
     submitBtn.disabled = true;
     submitBtn.innerHTML = 'Ingresando…';
-    const result = await authenticateLogin(email, password, remember);
+    let loginOk = false;
+    try {
+      const result = await authenticateLogin(email, password, remember);
+      loginOk = Boolean(result && result.ok);
+    } catch (err) {
+      loginOk = false;
+      const msg = (err && err.message) || 'No se pudo conectar con el servidor. Inténtalo de nuevo.';
+      errorBanner.textContent = '⚠️ ' + msg;
+      errorBanner.classList.remove('hidden');
+      el.querySelector('#login-password').focus();
+    }
     submitBtn.disabled = false;
     submitBtn.innerHTML = originalText;
 
-    if (result.ok) {
+    if (loginOk) {
       errorBanner.classList.add('hidden');
       saveAuthState(remember);
-      // Sin avisos de "sin conexión": la app trabaja en modo local o con
-      // el servidor de forma transparente para el usuario.
       showToast(`¡Bienvenido de nuevo, ${state.auth.user.name}! 💚`, 'success');
       window.location.hash = '#/';
       router();
-    } else {
-      errorBanner.textContent = '⚠️ ' + (result.error || 'Usuario o contraseña incorrectos.');
-      errorBanner.classList.remove('hidden');
-      el.querySelector('#login-password').focus();
     }
   });
 }
@@ -1061,10 +1098,8 @@ function handleLogout() {
 /* =====================================================================
    8. VISTA 1: INICIO (PANEL CON MÉTRICAS Y RESÚMENES)
    ===================================================================== */
-function renderHome(el) {
-  loadAppointments();
-  loadTasks();
-  loadContacts();
+async function renderHome(el) {
+  const dataError = await catchLoad(() => loadAllData());
 
   const totalCitas = state.appointments.length;
   const todayStr = new Date().toISOString().split('T')[0];
@@ -1083,6 +1118,7 @@ function renderHome(el) {
     .slice(0, 4);
 
   el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
     <!-- Bienvenida -->
     <div class="dashboard-welcome">
       <h1>Panel de Gestión y Bienestar 🌿</h1>
@@ -1191,7 +1227,7 @@ function renderHome(el) {
 /* =====================================================================
    9. VISTA 2: MI AGENDA (SINCRONIZACIÓN DIRECTA CON MI DIRECTORIO)
    ===================================================================== */
-function renderAppointment(el) {
+async function renderAppointment(el) {
   Object.assign(appointmentForm, {
     step: 1,
     professionalId: null,
@@ -1208,7 +1244,7 @@ function renderAppointment(el) {
     reminderSound: 'timbre'
   });
 
-  loadAppointments();
+  const dataError = await catchLoad(() => loadAppointments());
   const todayStr = new Date().toISOString().split('T')[0];
   const upcoming = state.appointments
     .filter(a => a.fecha >= todayStr && a.estado !== 'cancelada')
@@ -1234,6 +1270,7 @@ function renderAppointment(el) {
        </ul>`;
 
   el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
     <div class="page-header" role="banner">
       <h1>Mi Agenda y Citas</h1>
       <p>Selecciona profesional, fecha y los datos del tutor y paciente (se guardan automáticamente en Mi Directorio)</p>
@@ -1282,13 +1319,19 @@ function renderAppointment(el) {
   });
 
   el.querySelectorAll('[data-action="cancel-appt"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const a = state.appointments.find(x => x.id === btn.dataset.id);
       if (!a) return;
       if (confirm(`¿Cancelar la cita de ${a.pacienteNombre} el ${formatDate(a.fecha)} a las ${a.hora}?`)) {
+        const prev = a.estado;
         a.estado = 'cancelada';
-        saveAppointments();
-        showToast('Cita cancelada de Mi Agenda.', 'info');
+        try {
+          await saveAppointments();
+          showToast('Cita cancelada de Mi Agenda.', 'info');
+        } catch (e) {
+          a.estado = prev;
+          showToast('⚠️ No se pudo cancelar la cita: ' + (e.message || 'error desconocido'), 'error');
+        }
         renderAppointment(el);
       }
     });
@@ -1386,13 +1429,22 @@ function openRescheduleAppointmentModal(appointment, onDone) {
       </select>`;
   });
 
-  document.getElementById('btn-save-reschedule').addEventListener('click', () => {
+  document.getElementById('btn-save-reschedule').addEventListener('click', async () => {
     const newDate = document.getElementById('rs-date').value;
     const newTime = document.getElementById('rs-time').value;
     if (!newDate || !newTime) return;
 
-    const prevDate = appointment.fecha;
-    const prevName = appointment.pacienteNombre;
+    const prevState = {
+      fecha: appointment.fecha,
+      hora: appointment.hora,
+      tutorNombre: appointment.tutorNombre,
+      pacienteNombre: appointment.pacienteNombre,
+      pacienteEdad: appointment.pacienteEdad,
+      telefono: appointment.telefono,
+      email: appointment.email,
+      motivo: appointment.motivo,
+      motivoDetalle: appointment.motivoDetalle
+    };
 
     appointment.fecha = newDate;
     appointment.hora = newTime;
@@ -1404,19 +1456,26 @@ function openRescheduleAppointmentModal(appointment, onDone) {
     appointment.motivo = document.getElementById('rs-motivo').value;
     appointment.motivoDetalle = document.getElementById('rs-motivo-detalle').value.trim();
 
-    saveAppointments();
+    // Guardar la cita en el backend; revertir si el servidor lo rechaza
+    try {
+      await saveAppointments();
+    } catch (e) {
+      Object.assign(appointment, prevState);
+      showToast('⚠️ No se pudo reagendar la cita: ' + (e.message || 'error desconocido'), 'error');
+      return;
+    }
 
     // Actualizar la tarea-recordatorio vinculada (misma cita, no duplicar avisos)
     const link = state.tasks.find(t =>
       t.category === 'cita' &&
-      t.date === prevDate &&
+      t.date === prevState.fecha &&
       t.time === appointment.hora &&
       t.title && t.title.includes(appointment.professionalName));
     if (link) {
       link.date = newDate;
       link.time = newTime;
-      if (prevName) link.description = `Paciente: ${appointment.pacienteNombre}. Tutor: ${appointment.tutorNombre}.`;
-      saveTasks();
+      if (prevState.pacienteNombre) link.description = `Paciente: ${appointment.pacienteNombre}. Tutor: ${appointment.tutorNombre}.`;
+      try { await saveTasks(); } catch (e) { console.warn('No se pudo actualizar la tarea-recordatorio:', e); }
     }
 
     // Limpiar el aviso ya notificado para que vuelva a avisar con la nueva fecha/hora
@@ -1992,11 +2051,11 @@ function renderAppointmentStep5() {
   document.getElementById('btn-step-confirm').addEventListener('click', submitAppointment);
 }
 
-function submitAppointment() {
+async function submitAppointment() {
   const prof = getProfessional(appointmentForm.professionalId);
 
   const appointment = {
-    id: generateId(),
+    id: null, // el servidor asigna el id real
     professionalId: appointmentForm.professionalId,
     professionalName: prof ? prof.nombre : 'Especialista',
     professionalSpecialty: prof ? prof.especialidad : 'Psicología',
@@ -2011,8 +2070,7 @@ function submitAppointment() {
     motivoDetalle: (appointmentForm.motivoDetalle || '').trim(),
     reminderOffset: appointmentForm.reminderOffset,
     reminderSound: appointmentForm.reminderSound,
-    estado: 'confirmada',
-    createdAt: new Date().toISOString()
+    estado: 'confirmada'
   };
 
   // Si la cita tiene aviso, pedir autorización de notificaciones (clic = gesto válido)
@@ -2020,52 +2078,52 @@ function submitAppointment() {
     ensureNotificationPermission();
   }
 
-  // 1. Guardar Cita en Mi Agenda
-  state.appointments.push(appointment);
-  saveAppointments();
+  const submitBtn = document.getElementById('btn-step-confirm');
+  const originalLabel = submitBtn ? submitBtn.textContent : '';
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Guardando…'; }
 
-  // 2. Sincronización automática DIRECTA con MI DIRECTORIO
-  loadContacts();
-  const existingContact = state.contacts.find(c =>
-    c.telefono === appointment.telefono || (appointment.email && c.email && c.email.toLowerCase() === appointment.email.toLowerCase())
-  );
+  try {
+    // 1. Guardar la cita EN EL BACKEND (POST /api/citas → devuelve id real)
+    const created = await API.citas.create(citaToServer(appointment));
+    const savedAppt = normalizeCitaFromServer(created);
+    state.appointments.push(savedAppt);
+    appointment.id = savedAppt.id;
+    appointment.fecha = savedAppt.fecha;
+    appointment.hora = savedAppt.hora;
 
-  if (existingContact) {
-    existingContact.nombre = appointment.tutorNombre;
-    existingContact.paciente = `${appointment.pacienteNombre} (${appointment.pacienteEdad} años)`;
-    existingContact.notas = `Actualizado desde Mi Agenda con ${appointment.professionalName}. Motivo: ${appointment.motivo}`;
-    saveContacts();
-  } else {
-    const newContact = {
-      id: generateId(),
-      nombre: appointment.tutorNombre,
-      telefono: appointment.telefono,
-      email: appointment.email,
-      relacion: 'Tutor',
-      paciente: `${appointment.pacienteNombre} (${appointment.pacienteEdad} años)`,
-      notas: `Contacto registrado automáticamente desde Mi Agenda con ${appointment.professionalName}. Motivo: ${appointment.motivo}`
+    // 2. Sincronización automática DIRECTA con MI DIRECTORIO (backend)
+    try { await upsertContactForAppointment(savedAppt); }
+    catch (e) {
+      console.warn('No se pudo actualizar Mi Directorio:', e);
+      showToast('Cita guardada, pero no se pudo actualizar Mi Directorio.', 'info');
+    }
+
+    // 3. Crear la cita como tarea en Mis Tareas (SIN aviso propio: el aviso lo
+    //    gestiona la propia cita en Mi Agenda, así no se duplican timbres)
+    const autoTask = {
+      date: savedAppt.fecha,
+      time: savedAppt.hora,
+      title: `Cita con ${savedAppt.professionalName}`,
+      priority: 'alta',
+      category: 'cita',
+      description: `Paciente: ${savedAppt.pacienteNombre}. Tutor: ${savedAppt.tutorNombre}.`,
+      reminderOffset: null,
+      reminderSound: 'timbre',
+      done: false
     };
-    state.contacts.unshift(newContact);
-    saveContacts();
+    try {
+      const task = await API.tareas.create(taskToServer(autoTask));
+      if (task && task.id != null) state.tasks.push(normalizeTaskFromServer(task));
+    } catch (e) {
+      console.warn('No se pudo crear la tarea-recordatorio:', e);
+      showToast('Cita guardada, pero no se pudo crear el recordatorio.', 'info');
+    }
+  } catch (e) {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel; }
+    showToast('⚠️ ' + ((e && e.message) || 'No se pudo guardar la cita. Inténtalo de nuevo.'), 'error');
+    renderAppointmentStep5(); // conservar los datos del formulario para reintentar
+    return;
   }
-
-  // 3. Crear la cita como tarea en Mis Tareas (SIN aviso propio: el aviso lo
-  //    gestiona la propia cita en Mi Agenda, así no se duplican timbres)
-  const autoTask = {
-    id: generateId(),
-    date: appointment.fecha,
-    time: appointment.hora,
-    title: `Cita con ${appointment.professionalName}`,
-    priority: 'alta',
-    category: 'cita',
-    description: `Paciente: ${appointment.pacienteNombre}. Tutor: ${appointment.tutorNombre}.`,
-    reminderOffset: null,
-    reminderSound: 'timbre',
-    done: false,
-    createdAt: new Date().toISOString()
-  };
-  state.tasks.push(autoTask);
-  saveTasks();
 
   showToast('✓ Cita guardada en Mi Agenda y tutor sincronizado automáticamente con Mi Directorio.', 'success');
   updateSteps(5);
@@ -2188,10 +2246,11 @@ function openWhatsAppConfirmation(appointment) {
    ===================================================================== */
 let tasksViewMode = 'dia'; // 'dia' | 'semana' | 'mes' | 'horas'
 
-function renderTasks(el) {
-  loadTasks();
+async function renderTasks(el) {
+  const dataError = await catchLoad(() => loadTasks());
 
   el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
     <div class="page-header" role="banner">
       <h1>Mis Tareas y Calendario</h1>
       <p>Organiza compromisos, ejercicios terapéuticos y recordatorios</p>
@@ -2231,7 +2290,6 @@ function renderTasks(el) {
 function refreshTaskViews() {
   const root = document.getElementById('tasks-view-root');
   if (!root) return;
-  loadTasks();
 
   if (tasksViewMode === 'mes') {
     root.innerHTML = `
@@ -2650,7 +2708,7 @@ function buildTasksPanel() {
     addForm.reset();
   });
 
-  addForm.addEventListener('submit', (e) => {
+  addForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const titleInput = panel.querySelector('#task-title-input');
     const dateInput  = panel.querySelector('#task-date-input');
@@ -2667,7 +2725,7 @@ function buildTasksPanel() {
     }
 
     const newTask = {
-      id: generateId(),
+      id: null,
       date: dateInput.value || selectedDate,
       time: timeInput.value || '',
       title: titleVal,
@@ -2686,8 +2744,13 @@ function buildTasksPanel() {
     }
 
     state.tasks.push(newTask);
-    saveTasks();
-    showToast('✓ Tarea agregada con éxito a Mis Tareas.', 'success');
+    try {
+      await saveTasks();
+      showToast('✓ Tarea agregada con éxito a Mis Tareas.', 'success');
+    } catch (e) {
+      state.tasks.pop();
+      showToast('⚠️ No se pudo agregar la tarea: ' + (e.message || 'error desconocido'), 'error');
+    }
 
     calendarState.selectedDate = newTask.date;
     refreshTaskViews();
@@ -2723,15 +2786,24 @@ function buildTaskItemHTML(t) {
 
 function attachTaskEvents(panel) {
   panel.querySelectorAll('[data-action="toggle"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const task = state.tasks.find(t => t.id === id);
       if (task) {
-        task.done = !task.done;
+        const prevDone = task.done;
+        task.done = !prevDone;
         if (task.done) task.completedAt = new Date().toISOString();
-        saveTasks();
+        else delete task.completedAt;
+        try {
+          await saveTasks();
+          showToast(task.done ? '✓ Tarea completada.' : 'Tarea reactivada.', task.done ? 'success' : 'info');
+        } catch (e) {
+          task.done = prevDone;
+          if (prevDone) task.completedAt = new Date().toISOString();
+          else delete task.completedAt;
+          showToast('⚠️ No se pudo actualizar la tarea: ' + (e.message || 'error desconocido'), 'error');
+        }
         refreshTaskViews();
-        showToast(task.done ? '✓ Tarea completada.' : 'Tarea reactivada.', task.done ? 'success' : 'info');
       }
     });
   });
@@ -2745,13 +2817,19 @@ function attachTaskEvents(panel) {
   });
 
   panel.querySelectorAll('[data-action="delete"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       if (confirm('¿Eliminar esta tarea de Mis Tareas?')) {
+        const prev = state.tasks;
         state.tasks = state.tasks.filter(t => t.id !== id);
-        saveTasks();
+        try {
+          await saveTasks();
+          showToast('Tarea eliminada de Mis Tareas.', 'info');
+        } catch (e) {
+          state.tasks = prev;
+          showToast('⚠️ No se pudo eliminar la tarea: ' + (e.message || 'error desconocido'), 'error');
+        }
         refreshTaskViews();
-        showToast('Tarea eliminada de Mis Tareas.', 'info');
       }
     });
   });
@@ -2819,7 +2897,7 @@ function openTaskEditModal(task, onDone) {
   const titleInput = document.getElementById('t-edit-title');
   titleInput.focus();
 
-  document.getElementById('btn-save-edit-task').addEventListener('click', () => {
+  document.getElementById('btn-save-edit-task').addEventListener('click', async () => {
     const title = titleInput.value.trim();
     if (!title) {
       titleInput.focus();
@@ -2828,6 +2906,7 @@ function openTaskEditModal(task, onDone) {
     }
 
     const prevDate = task.date;
+    const prevState = Object.assign({}, task);
     task.title = title;
     task.date = document.getElementById('t-edit-date').value || task.date;
     task.time = document.getElementById('t-edit-time').value || '';
@@ -2840,7 +2919,13 @@ function openTaskEditModal(task, onDone) {
       ensureNotificationPermission();
     }
 
-    saveTasks();
+    try {
+      await saveTasks();
+    } catch (e) {
+      Object.assign(task, prevState);
+      showToast('⚠️ No se pudo actualizar la tarea: ' + (e.message || 'error desconocido'), 'error');
+      return;
+    }
 
     // Si es la tarea-recordatorio de una cita, mantén actualizada la cita en Mi Agenda
     if (task.category === 'cita' && task.date && prevDate !== task.date) {
@@ -2850,7 +2935,7 @@ function openTaskEditModal(task, onDone) {
       if (linked) {
         linked.fecha = task.date;
         if (task.time) linked.hora = task.time;
-        saveAppointments();
+        try { await saveAppointments(); } catch (e) { console.warn('No se pudo actualizar la cita vinculada:', e); }
       }
     }
 
@@ -2863,9 +2948,8 @@ function openTaskEditModal(task, onDone) {
 /* =====================================================================
    11. VISTA 4: MI HISTORIAL (CITAS + TAREAS CON FILTROS DINÁMICOS)
    ===================================================================== */
-function renderHistory(el) {
-  loadAppointments();
-  loadTasks();
+async function renderHistory(el) {
+  const dataError = await catchLoad(() => loadAllData());
 
   let filterType = 'all'; // 'all', 'appointments', 'tasks'
   let filterProf = 'all';
@@ -2990,6 +3074,7 @@ function renderHistory(el) {
   };
 
   el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
     <div class="page-header" role="banner">
       <h1>Mi Historial de Citas y Tareas</h1>
       <p>Consulta registros de consultas psicológicas y metas terapéuticas alcanzadas</p>
@@ -3060,36 +3145,54 @@ function renderHistory(el) {
     });
 
     document.querySelectorAll('[data-action="toggle-status"]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
         const a = state.appointments.find(item => item.id === id);
         if (a) {
+          const prev = a.estado;
           a.estado = a.estado === 'atendida' ? 'confirmada' : 'atendida';
-          saveAppointments();
-          showToast(`Estado de cita actualizado a: ${a.estado}`, 'success');
+          try {
+            await saveAppointments();
+            showToast(`Estado de cita actualizado a: ${a.estado}`, 'success');
+          } catch (e) {
+            a.estado = prev;
+            showToast('⚠️ No se pudo actualizar el estado: ' + (e.message || 'error desconocido'), 'error');
+          }
           refresh();
         }
       });
     });
 
     document.querySelectorAll('[data-action="delete-history"]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const type = btn.dataset.type;
         const id = btn.dataset.id;
         if (type === 'appointment') {
           const a = state.appointments.find(item => item.id === id);
           if (a && confirm(`¿Seguro que deseas eliminar del historial la cita de ${a.pacienteNombre} (${formatDateShort(a.fecha)} a las ${a.hora})? También se quitará de Mi Agenda. Esta acción no se puede deshacer.`)) {
+            const prev = state.appointments;
             state.appointments = state.appointments.filter(item => item.id !== id);
-            saveAppointments();
-            showToast('Cita eliminada del historial y de Mi Agenda.', 'success');
+            try {
+              await saveAppointments();
+              showToast('Cita eliminada del historial y de Mi Agenda.', 'success');
+            } catch (e) {
+              state.appointments = prev;
+              showToast('⚠️ No se pudo eliminar la cita: ' + (e.message || 'error desconocido'), 'error');
+            }
             refresh();
           }
         } else if (type === 'task') {
           const t = state.tasks.find(item => item.id === id);
           if (t && confirm(`¿Seguro que deseas eliminar del historial la tarea "${t.title}"? Esta acción no se puede deshacer.`)) {
+            const prev = state.tasks;
             state.tasks = state.tasks.filter(item => item.id !== id);
-            saveTasks();
-            showToast('Tarea eliminada del historial.', 'success');
+            try {
+              await saveTasks();
+              showToast('Tarea eliminada del historial.', 'success');
+            } catch (e) {
+              state.tasks = prev;
+              showToast('⚠️ No se pudo eliminar la tarea: ' + (e.message || 'error desconocido'), 'error');
+            }
             refresh();
           }
         }
@@ -3105,18 +3208,25 @@ function renderHistory(el) {
     }
   };
 
-  document.getElementById('btn-clear-history')?.addEventListener('click', () => {
+  document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
     const totalRegistros = state.appointments.length + state.tasks.length;
     if (totalRegistros === 0) {
       showToast('No hay registros en el historial para eliminar.', 'info');
       return;
     }
+    const prevApps = state.appointments;
+    const prevTasks = state.tasks;
     if (confirm(`¿Seguro que deseas borrar TODO el historial (${totalRegistros} registro${totalRegistros === 1 ? '' : 's'})?\n\nSe eliminarán TODAS las citas y TODAS las tareas (completadas y pendientes). Esta acción no se puede deshacer.`)) {
       state.appointments = [];
       state.tasks = [];
-      saveAppointments();
-      saveTasks();
-      showToast('Todo el historial ha sido eliminado.', 'success');
+      try {
+        await Promise.all([saveAppointments(), saveTasks()]);
+        showToast('Todo el historial ha sido eliminado.', 'success');
+      } catch (e) {
+        state.appointments = prevApps;
+        state.tasks = prevTasks;
+        showToast('⚠️ No se pudo borrar el historial: ' + (e.message || 'error desconocido'), 'error');
+      }
       refresh();
     }
   });
@@ -3127,8 +3237,8 @@ function renderHistory(el) {
 /* =====================================================================
    12. VISTA 5: MI DIRECTORIO (CRUD COMPLETO: AGREGAR, EDITAR, ELIMINAR Y BUSCAR)
    ===================================================================== */
-function renderDirectory(el) {
-  loadContacts();
+async function renderDirectory(el) {
+  const dataError = await catchLoad(() => loadContacts());
   let searchTerm = '';
 
   const renderContactsGrid = () => {
@@ -3200,6 +3310,7 @@ function renderDirectory(el) {
   };
 
   el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
     <div class="page-header" role="banner">
       <h1>Mi Directorio</h1>
       <p>Gestión de padres, tutores, orientadores escolares y red de apoyo familiar</p>
@@ -3285,7 +3396,7 @@ function renderDirectory(el) {
       `
     );
 
-    document.getElementById('btn-save-modal-contact')?.addEventListener('click', () => {
+    document.getElementById('btn-save-modal-contact')?.addEventListener('click', async () => {
       const nombre = document.getElementById('m-nombre')?.value.trim();
       const telefono = document.getElementById('m-telefono')?.value.trim();
       const email = document.getElementById('m-email')?.value.trim();
@@ -3304,29 +3415,51 @@ function renderDirectory(el) {
         return;
       }
 
-      if (isEdit) {
-        contact.nombre = nombre;
-        contact.telefono = telefono;
-        contact.email = email;
-        contact.relacion = relacion;
-        contact.paciente = paciente;
-        contact.notas = notas;
-        showToast('✓ Contacto actualizado correctamente en Mi Directorio.', 'success');
-      } else {
-        const newC = {
-          id: generateId(),
-          nombre,
-          telefono,
-          email,
-          relacion,
-          paciente,
-          notas
-        };
-        state.contacts.unshift(newC);
-        showToast('✓ Nuevo contacto añadido a Mi Directorio.', 'success');
+      const sb = document.getElementById('btn-save-modal-contact');
+      const origLabel = sb ? sb.textContent : '';
+      if (sb) { sb.disabled = true; sb.textContent = 'Guardando…'; }
+
+      try {
+        if (isEdit) {
+          const prev = Object.assign({}, contact);
+          contact.nombre = nombre;
+          contact.telefono = telefono;
+          contact.email = email;
+          contact.relacion = relacion;
+          contact.paciente = paciente;
+          contact.notas = notas;
+          try {
+            await saveContacts();
+            showToast('✓ Contacto actualizado correctamente en Mi Directorio.', 'success');
+          } catch (e) {
+            Object.assign(contact, prev);
+            throw e;
+          }
+        } else {
+          const newC = {
+            id: null,
+            nombre,
+            telefono,
+            email,
+            relacion,
+            paciente,
+            notas
+          };
+          state.contacts.unshift(newC);
+          try {
+            await saveContacts();
+            showToast('✓ Nuevo contacto añadido a Mi Directorio.', 'success');
+          } catch (e) {
+            state.contacts.shift();
+            throw e;
+          }
+        }
+      } catch (e) {
+        if (sb) { sb.disabled = false; sb.textContent = origLabel; }
+        showToast('⚠️ No se pudo guardar el contacto: ' + (e.message || 'error desconocido'), 'error');
+        return;
       }
 
-      saveContacts();
       closeModal();
       refreshGrid();
     });
@@ -3342,13 +3475,19 @@ function renderDirectory(el) {
     });
 
     document.querySelectorAll('[data-action="delete-contact"]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
         const c = state.contacts.find(item => item.id === id);
         if (c && confirm(`¿Seguro que deseas eliminar a ${c.nombre} de Mi Directorio?`)) {
+          const prev = state.contacts;
           state.contacts = state.contacts.filter(item => item.id !== id);
-          saveContacts();
-          showToast('Contacto eliminado de Mi Directorio.', 'info');
+          try {
+            await saveContacts();
+            showToast('Contacto eliminado de Mi Directorio.', 'info');
+          } catch (e) {
+            state.contacts = prev;
+            showToast('⚠️ No se pudo eliminar el contacto: ' + (e.message || 'error desconocido'), 'error');
+          }
           refreshGrid();
         }
       });
@@ -3627,9 +3766,13 @@ function eventDateTime(item) {
 }
 
 /** Revisa cada cita y tarea con SU PROPIO aviso (offset y timbre individuales) */
-function checkReminders() {
-  loadAppointments();
-  loadTasks();
+async function checkReminders() {
+  try {
+    await loadAppointments();
+    await loadTasks();
+  } catch (e) {
+    console.warn('No se pudieron cargar los datos para revisar avisos:', e);
+  }
   loadCustomSounds();
 
   const now = Date.now();
@@ -3694,7 +3837,7 @@ function initReminderWatcher() {
   loadCustomSounds();
 
   const safeCheck = () => {
-    try { checkReminders(); } catch (e) { console.error('Error revisando avisos:', e); }
+    checkReminders().catch(e => console.error('Error revisando avisos:', e));
   };
 
   safeCheck();
@@ -3901,9 +4044,9 @@ document.addEventListener('click', (e) => {
    ===================================================================== */
 document.addEventListener('DOMContentLoaded', () => {
   loadAuthState();
-  loadAppointments();
-  loadTasks();
-  loadContacts();
+  // Precarga en segundo plano (las vistas recargan los datos del backend de
+  // forma autoritativa); los rechazos se ignoran aquí.
+  Promise.allSettled([loadAppointments(), loadTasks(), loadContacts()]);
   loadCustomSounds();
   // Desbloquear el audio en el primer toque/tecla (clave para iOS/Android)
   unlockAudioOnGesture();
