@@ -552,13 +552,15 @@ async function loadAppointments() {
   return state.appointments;
 }
 
-/** Envía las citas al backend: crea las nuevas, actualiza las existentes y
- *  borra en el servidor las que ya no existen en el estado local. */
+/** Envía las citas al backend: crea las nuevas y actualiza las existentes.
+ *  No realiza borrados remotos aquí (estos se hacen explícitamente con
+ *  API.citas.remove al eliminar), para no pisar ni re-crear datos creados o
+ *  borrados desde otra pestaña/dispositivo con la misma cuenta. */
 function saveAppointments() {
   const run = guardCitas(async () => {
     if (!getToken()) return state.appointments;
 
-    let remote = await API.citas.getAll();
+    const remote = await API.citas.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
@@ -569,13 +571,6 @@ function saveAppointments() {
       } else {
         const created = await API.citas.create(citaToServer(a));
         if (created && created.id != null) a.id = String(created.id);
-      }
-    }
-
-    const localIds = new Set(state.appointments.map(a => String(a.id)));
-    for (const r of remote) {
-      if (!localIds.has(String(r.id))) {
-        try { await API.citas.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
@@ -599,7 +594,7 @@ function saveTasks() {
   const run = guardTareas(async () => {
     if (!getToken()) return state.tasks;
 
-    let remote = await API.tareas.getAll();
+    const remote = await API.tareas.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
@@ -610,13 +605,6 @@ function saveTasks() {
       } else {
         const created = await API.tareas.create(taskToServer(t));
         if (created && created.id != null) t.id = String(created.id);
-      }
-    }
-
-    const localIds = new Set(state.tasks.map(t => String(t.id)));
-    for (const r of remote) {
-      if (!localIds.has(String(r.id))) {
-        try { await API.tareas.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
@@ -659,7 +647,7 @@ function saveContacts() {
   const run = guardContactos(async () => {
     if (!getToken()) return state.contacts;
 
-    let remote = await API.contactos.getAll();
+    const remote = await API.contactos.getAll();
     if (!Array.isArray(remote)) remote = [];
 
     const remoteIds = new Set(remote.map(r => String(r.id)));
@@ -670,13 +658,6 @@ function saveContacts() {
       } else {
         const created = await API.contactos.create(contactToServer(c));
         if (created && created.id != null) c.id = String(created.id);
-      }
-    }
-
-    const localIds = new Set(state.contacts.map(c => String(c.id)));
-    for (const r of remote) {
-      if (!localIds.has(String(r.id))) {
-        try { await API.contactos.remove(r.id); } catch (e) { /* ya no existe */ }
       }
     }
 
@@ -2823,7 +2804,8 @@ function attachTaskEvents(panel) {
         const prev = state.tasks;
         state.tasks = state.tasks.filter(t => t.id !== id);
         try {
-          await saveTasks();
+          await API.tareas.remove(id);
+          setBackendOnline(true);
           showToast('Tarea eliminada de Mis Tareas.', 'info');
         } catch (e) {
           state.tasks = prev;
@@ -3173,7 +3155,8 @@ async function renderHistory(el) {
             const prev = state.appointments;
             state.appointments = state.appointments.filter(item => item.id !== id);
             try {
-              await saveAppointments();
+              await API.citas.remove(id);
+              setBackendOnline(true);
               showToast('Cita eliminada del historial y de Mi Agenda.', 'success');
             } catch (e) {
               state.appointments = prev;
@@ -3187,7 +3170,8 @@ async function renderHistory(el) {
             const prev = state.tasks;
             state.tasks = state.tasks.filter(item => item.id !== id);
             try {
-              await saveTasks();
+              await API.tareas.remove(id);
+              setBackendOnline(true);
               showToast('Tarea eliminada del historial.', 'success');
             } catch (e) {
               state.tasks = prev;
@@ -3220,7 +3204,23 @@ async function renderHistory(el) {
       state.appointments = [];
       state.tasks = [];
       try {
-        await Promise.all([saveAppointments(), saveTasks()]);
+        const removeAll = async (list, api) => {
+          for (const item of list) {
+            try { await api.remove(item.id); } catch (_) { /* ya no existe */ }
+          }
+        };
+        const [citasRem] = await Promise.all([
+          (async () => {
+            const remote = await API.citas.getAll();
+            await removeAll(Array.isArray(remote) ? remote : [], API.citas);
+          })(),
+          (async () => {
+            const remote = await API.tareas.getAll();
+            await removeAll(Array.isArray(remote) ? remote : [], API.tareas);
+          })()
+        ]);
+        void citasRem;
+        setBackendOnline(true);
         showToast('Todo el historial ha sido eliminado.', 'success');
       } catch (e) {
         state.appointments = prevApps;
@@ -3482,7 +3482,8 @@ async function renderDirectory(el) {
           const prev = state.contacts;
           state.contacts = state.contacts.filter(item => item.id !== id);
           try {
-            await saveContacts();
+            await API.contactos.remove(id);
+            setBackendOnline(true);
             showToast('Contacto eliminado de Mi Directorio.', 'info');
           } catch (e) {
             state.contacts = prev;
