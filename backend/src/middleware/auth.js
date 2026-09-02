@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
+const JWT_SECRET = process.env.JWT_SECRET || 'agendaactybien_clave_jwt_super_secreta_2026';
+
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.header('Authorization');
   const token = authHeader && authHeader.startsWith('Bearer ')
@@ -12,7 +14,7 @@ const authenticateToken = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'nailart_studio_secret_key');
+    const decoded = jwt.verify(token, JWT_SECRET);
     
     // Verificar que el usuario aún exista en la base de datos
     const userResult = await pool.query('SELECT id, nombre, email, rol FROM users WHERE id = $1', [decoded.id]);

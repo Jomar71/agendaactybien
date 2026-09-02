@@ -2,6 +2,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// Valores por defecto seguros para que el login funcione aunque el entorno
+// no defina estas variables (p. ej. en pxxl/plan free).
+const JWT_SECRET = process.env.JWT_SECRET || 'agendaactybien_clave_jwt_super_secreta_2026';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
 const authController = {
   // Register a new admin user
   register: async (req, res) => {
@@ -24,8 +29,8 @@ const authController = {
       // Generate token
       const token = jwt.sign(
         { id: newUser.id, email: newUser.email },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
       );
 
       res.status(201).json({
@@ -64,8 +69,8 @@ const authController = {
       // Generate token
       const token = jwt.sign(
         { id: user.id, email: user.email },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
       );
 
       res.json({
