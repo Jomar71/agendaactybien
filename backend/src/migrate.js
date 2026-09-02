@@ -133,23 +133,37 @@ async function seedDemoUser() {
 
 let initPromise = null;
 
-/** Ejecuta (una sola vez por proceso) la creación de esquema + usuario demo. */
-function initDatabase() {
+async function runOnce() {
+  for (const sql of TABLES) await pool.query(sql);
+  for (const sql of INDEXES) {
+    try { await pool.query(sql); } catch (e) { console.warn('Índice no creado:', e.message); }
+  }
+  for (const sql of FOREIGN_KEYS) {
+    try { await pool.query(sql); } catch (e) { console.warn('FK no creada:', e.message); }
+  }
+  const seeded = await seedDemoUser();
+  return { tablesReady: true, seeded };
+}
+
+/**
+ * Crea esquema + usuario demo (idempotente).
+ * Con reintentos: si la BD aún se está aprovisionando (provisión asíncrona
+ * en pxxl), espera y reintenta antes de rendirse.
+ */
+function initDatabase(opts = {}) {
+  const retries = opts.retries ?? 3;
+  const delayMs = opts.delayMs ?? 10000;
   if (!initPromise) {
-    initPromise = (async () => {
-      for (const sql of TABLES) await pool.query(sql);
-      for (const sql of INDEXES) {
-        try { await pool.query(sql); } catch (e) { console.warn('Índice no creado:', e.message); }
+    const attempt = (n) => runOnce().catch(async (err) => {
+      if (n < retries) {
+        console.warn(`⚠️  BD aún no disponible (intento ${n + 1}/${retries}). Reintentando en ${delayMs / 1000}s... ${err.message}`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        return attempt(n + 1);
       }
-      for (const sql of FOREIGN_KEYS) {
-        try { await pool.query(sql); } catch (e) { console.warn('FK no creada:', e.message); }
-      }
-      const seeded = await seedDemoUser();
-      return { tablesReady: true, seeded };
-    })().catch((err) => {
-      initPromise = null; // permitir reintentar en un futuro arranque
+      initPromise = null; // permitir un futuro reintento
       throw err;
     });
+    initPromise = attempt(0);
   }
   return initPromise;
 }

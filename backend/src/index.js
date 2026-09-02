@@ -146,20 +146,39 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 4000;
 
-// Crear esquema + usuario demo si no existen (idempotente). Si la BD aún no
-// responde, el servidor igual arranca (salud/estáticos disponibles) y el
-// error queda claro en los logs para reintentar tras arreglar la conexión.
-initDatabase()
-  .then((r) => {
-    console.log('✅ Base de datos verificada/creada.');
-    if (r && r.seeded) console.log('👤 Usuario demo creado: paola@terapia');
-  })
-  .catch((err) => {
-    console.error('❌ No se pudo inicializar la base de datos:', err.message);
-  })
-  .finally(() => {
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor Actitud & Bienestar activo en http://localhost:${PORT}`);
-      console.log(`⚙️  Entorno: ${process.env.NODE_ENV || 'development'}`);
+// Inicializa la BD (tablas + usuario demo) sin bloquear el arranque.
+// Si la BD aún se provee (ventana de provisión asíncrona en pxxl), reintenta
+// en segundo plano; el servidor ya queda escuchando (salud/estáticos).
+function tryInit() {
+  return initDatabase({ retries: 5, delayMs: 10000 })
+    .then((r) => {
+      console.log('✅ Base de datos verificada/creada.');
+      if (r && r.seeded) console.log('👤 Usuario demo creado: paola@terapia');
+    })
+    .catch((err) => {
+      console.error('❌ No se pudo inicializar la base de datos:', err.message);
+      return Promise.reject(err);
     });
+}
+
+let retryRounds = 0;
+const MAX_RETRY_ROUNDS = 10;
+
+function startInitWithBackgroundRetry() {
+  tryInit().catch(() => {
+    retryRounds += 1;
+    if (retryRounds < MAX_RETRY_ROUNDS) {
+      console.warn(`⏳ Reintentando inicialización de BD en 2 min (ronda ${retryRounds}/${MAX_RETRY_ROUNDS})...`);
+      setTimeout(startInitWithBackgroundRetry, 120000);
+    } else {
+      console.error('❌ Se alcanzó el máximo de reintentos de BD. Verifica DATABASE_URL en el dashboard de pxxl.');
+    }
   });
+}
+
+startInitWithBackgroundRetry();
+
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor Actitud & Bienestar activo en http://localhost:${PORT}`);
+  console.log(`⚙️  Entorno: ${process.env.NODE_ENV || 'development'}`);
+});
