@@ -17,7 +17,7 @@ const authenticateToken = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     
     // Verificar que el usuario aún exista en la base de datos
-    const userResult = await pool.query('SELECT id, nombre, email, rol FROM users WHERE id = $1', [decoded.id]);
+    const userResult = await pool.query('SELECT id, nombre, email, rol, professional_id FROM users WHERE id = $1', [decoded.id]);
 
     if (!userResult.rows.length) {
       return res.status(401).json({ message: 'Token no válido. El usuario ya no existe.' });
@@ -38,7 +38,16 @@ const authorizeAdmin = (req, res, next) => {
   next();
 };
 
+// Bloquea a los terapeutas (solo pueden consultar sus propias citas).
+const authorizeNotTerapeuta = (req, res, next) => {
+  if (!req.user || req.user.rol === 'terapeuta') {
+    return res.status(403).json({ message: 'Acceso denegado. Este módulo no está disponible para tu perfil.' });
+  }
+  next();
+};
+
 module.exports = {
   authenticateToken,
-  authorizeAdmin
+  authorizeAdmin,
+  authorizeNotTerapeuta
 };

@@ -23,6 +23,7 @@ const TABLES = [
     email VARCHAR(190) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     rol VARCHAR(50) DEFAULT 'admin',
+    professional_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`,
 
@@ -110,24 +111,57 @@ const FOREIGN_KEYS = pool.engine === 'postgres'
     ]
   : [];
 
-const DEMO_USER = {
-  email: 'paola@terapia',
-  password: 'pao1234567',
-  nombre: 'Paola',
-  rol: 'admin'
-};
-
-async function seedDemoUser() {
-  const existing = await pool.query('SELECT id FROM users WHERE email = ?', [DEMO_USER.email]);
-  if (existing.rows.length > 0) {
-    return false;
+const DEFAULT_USERS = [
+  {
+    email: 'paola@terapia',
+    password: 'pao1234567',
+    nombre: 'Paola',
+    rol: 'admin',
+    professional_id: 2
+  },
+  {
+    email: 'anabeli@terapia',
+    password: 'anabeli1234567',
+    nombre: 'Dr. Anabeli Córdoba',
+    rol: 'terapeuta',
+    professional_id: 1
   }
-  const salt = await bcrypt.genSalt(10);
-  const hash = await bcrypt.hash(DEMO_USER.password, salt);
-  await pool.query(
-    'INSERT INTO users (nombre, email, password, rol) VALUES (?, ?, ?, ?)',
-    [DEMO_USER.nombre, DEMO_USER.email, hash, DEMO_USER.rol]
-  );
+];
+
+/**
+ * Asegura la columna professional_id en la tabla users (migración segura
+ * para tablas ya creadas en versiones anteriores que no la tienen).
+ */
+async function ensureUsersProfessionalColumn() {
+  try {
+    await pool.query(
+      'ALTER TABLE users ADD COLUMN professional_id INT NULL'
+    );
+    console.log('➕ Columna professional_id añadida a la tabla users.');
+  } catch (e) {
+    // Columna ya existente (duplicate column) o motor sin soporte → ignorar.
+  }
+}
+
+async function seedUsers() {
+  await ensureUsersProfessionalColumn();
+  for (const u of DEFAULT_USERS) {
+    const existing = await pool.query('SELECT id FROM users WHERE email = ?', [u.email]);
+    if (existing.rows.length > 0) {
+      // Actualiza el rol y profesional asociado en caso de que cambiaran.
+      await pool.query(
+        'UPDATE users SET rol = ?, professional_id = ? WHERE id = ?',
+        [u.rol, u.professional_id, existing.rows[0].id]
+      );
+      continue;
+    }
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash(u.password, salt);
+    await pool.query(
+      'INSERT INTO users (nombre, email, password, rol, professional_id) VALUES (?, ?, ?, ?, ?)',
+      [u.nombre, u.email, hash, u.rol, u.professional_id]
+    );
+  }
   return true;
 }
 
@@ -141,7 +175,7 @@ async function runOnce() {
   for (const sql of FOREIGN_KEYS) {
     try { await pool.query(sql); } catch (e) { console.warn('FK no creada:', e.message); }
   }
-  const seeded = await seedDemoUser();
+  const seeded = await seedUsers();
   return { tablesReady: true, seeded };
 }
 
@@ -173,7 +207,7 @@ if (require.main === module) {
   initDatabase()
     .then((r) => {
       console.log('✅ Base de datos lista.');
-      console.log(r.seeded ? `👤 Usuario demo creado: ${DEMO_USER.email}` : `ℹ️  Usuario ${DEMO_USER.email} ya existía.`);
+      console.log(r.seeded ? '👤 Usuarios por defecto creados/actualizados.' : 'ℹ️  Usuarios configurados.');
       return pool.raw.end();
     })
     .catch((err) => {

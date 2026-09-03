@@ -420,7 +420,8 @@ async function authenticateLogin(email, password, remember) {
   state.auth.user = {
     email: user.email,
     name: user.nombre || 'Usuario',
-    role: user.rol || 'admin'
+    role: user.rol || 'admin',
+    professionalId: user.professionalId || null
   };
   setBackendOnline(true);
   return { ok: true, data };
@@ -506,6 +507,17 @@ function clearAuthState() {
   sessionStorage.removeItem(LS_SESSION);
   state.auth.isAuthenticated = false;
   state.auth.user = null;
+}
+
+/** Identifica si el usuario autenticado es un terapeuta (rol restringido). */
+function isTerapeuta() {
+  return Boolean(state.auth && state.auth.user && state.auth.user.role === 'terapeuta');
+}
+
+/** Rutas a las que puede acceder cada rol. Los terapeutas solo ven su agenda. */
+function allowedRoutesForRole() {
+  if (isTerapeuta()) return ['#/agendar'];
+  return ['#/', '#/agendar', '#/tareas', '#/historial', '#/directorio'];
 }
 
 /* =====================================================================
@@ -886,14 +898,29 @@ function updateHeaderAuthState() {
   // Ocultar/mostrar hamburguesa según autenticación
   if (menuToggle) menuToggle.style.display = isAuth ? '' : 'none';
 
-  // Si no está autenticado, ocultar enlaces de navegación regular y botón Salir
+  const allowed = allowedRoutesForRole();
+  const isAllowedHash = (href) => {
+    if (!href || !href.startsWith('#')) return true; // botones (Salir)
+    return allowed.includes(href);
+  };
+
+  // Si no está autenticado, ocultar todos los enlaces de navegación y botón Salir
   if (nav) {
     nav.querySelectorAll('.nav-link:not(.nav-link--logout)').forEach(link => {
-      link.style.display = isAuth ? '' : 'none';
+      const href = link.getAttribute('href');
+      const show = isAuth && isAllowedHash(href);
+      link.style.display = show ? '' : 'none';
     });
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) logoutBtn.style.display = isAuth ? '' : 'none';
   }
+
+  // Filtra la navegación del footer según el rol
+  document.querySelectorAll('.footer-nav-link').forEach(link => {
+    const href = link.getAttribute('href');
+    const show = isAuth && isAllowedHash(href);
+    link.style.display = show ? '' : 'none';
+  });
 }
 
 function router() {
@@ -903,7 +930,7 @@ function router() {
   const content = document.getElementById('content');
   if (!content) return;
 
-  const hash = window.location.hash || '#/';
+  let hash = window.location.hash || '#/';
   state.currentView = hash;
 
   // Si el usuario no está autenticado, renderizar obligatoriamente la pantalla de Login
@@ -913,7 +940,23 @@ function router() {
     return;
   }
 
-  // Si está autenticado, gestionar rutas
+  // Los terapeutas SOLO tienen permitida su agenda personal.
+  if (isTerapeuta()) {
+    if (hash !== '#/agendar') {
+      window.location.hash = '#/agendar';
+      hash = '#/agendar';
+    }
+    setActiveNav('#/agendar');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    content.innerHTML = pageLoadingHTML();
+    renderTerapeutaAgenda(content).catch((err) => {
+      console.error('Error al renderizar la agenda del terapeuta:', err);
+      content.innerHTML = dataErrorBannerHTML(err && err.message);
+    });
+    return;
+  }
+
+  // Si está autenticado (admin), gestionar rutas
   setActiveNav(hash);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -1201,6 +1244,67 @@ async function renderHome(el) {
       <a href="#/tareas" class="btn btn-green" data-nav>📋 Mis Tareas</a>
       <a href="#/directorio" class="btn btn-outline" data-nav>👥 Mi Directorio</a>
       <a href="#/historial" class="btn btn-secondary" data-nav>📜 Mi Historial</a>
+    </div>
+  `;
+}
+
+/* =====================================================================
+   8.b VISTA EXCLUSIVA PARA TERAPEUTAS: MI AGENDA (SOLO LECTURA)
+   Muestra únicamente las citas donde el profesional es el terapeuta
+   autenticado. Las citas las crea el administrador.
+   ===================================================================== */
+async function renderTerapeutaAgenda(el) {
+  const dataError = await catchLoad(() => loadAppointments());
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const upcoming = state.appointments
+    .filter(a => a.fecha >= todayStr && a.estado !== 'cancelada')
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora));
+
+  const past = state.appointments
+    .filter(a => a.fecha < todayStr || a.estado === 'cancelada')
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.hora.localeCompare(a.hora));
+
+  const cardHTML = (a) => `
+    <li class="appt-manage-item" role="listitem">
+      <div class="appt-manage-info">
+        <strong>${formatDateShort(a.fecha)} · ${escapeHtml(a.hora)}</strong>
+        <span>🧒 ${escapeHtml(a.pacienteNombre)} ${a.pacienteEdad ? `(${a.pacienteEdad} años)` : ''} — ${escapeHtml(a.tutorNombre)}</span>
+        <span style="font-size:0.82rem;color:var(--gray);margin-top:2px">📅 ${formatDate(a.fecha)} · ⏰ ${escapeHtml(a.hora)}</span>
+        <span style="font-size:0.82rem;color:var(--gray)">💬 Motivo: ${escapeHtml(a.motivo) || '—'}</span>
+      </div>
+      <span class="badge badge-${escapeHtml(a.estado)}">${escapeHtml(a.estado)}</span>
+    </li>
+  `;
+
+  el.innerHTML = `
+    ${dataError ? dataErrorBannerHTML(dataError) : ''}
+    <div class="page-header" role="banner">
+      <h1>Mi Agenda de Citas</h1>
+      <p>Bienvenido, <strong>${escapeHtml(state.auth.user?.name || 'Terapeuta')}</strong>. Aquí verás únicamente las citas donde eres el profesional a cargo.</p>
+    </div>
+    <div class="container">
+      <section class="appt-manage" aria-labelledby="terapeuta-upcoming-title">
+        <h2 id="terapeuta-upcoming-title" style="font-size:1.1rem;font-weight:800;color:var(--dark);margin-bottom:10px">
+          📌 Próximas citas (${upcoming.length})
+        </h2>
+        ${upcoming.length === 0
+          ? `<p style="color:var(--gray-light);font-size:0.9rem;text-align:center;padding:20px 0">
+               No tienes citas próximas asignadas.
+             </p>`
+          : `<ul class="appt-manage-list" role="list">${upcoming.map(cardHTML).join('')}</ul>`}
+      </section>
+
+      <hr class="section-divider" aria-hidden="true">
+
+      <section class="appt-manage" aria-labelledby="terapeuta-past-title">
+        <h2 id="terapeuta-past-title" style="font-size:1.1rem;font-weight:800;color:var(--dark);margin-bottom:10px">
+          🕒 Citas pasadas o canceladas (${past.length})
+        </h2>
+        ${past.length === 0
+          ? `<p style="color:var(--gray-light);font-size:0.9rem;text-align:center;padding:20px 0">Aún no hay historial de citas.</p>`
+          : `<ul class="appt-manage-list" role="list">${past.map(cardHTML).join('')}</ul>`}
+      </section>
     </div>
   `;
 }

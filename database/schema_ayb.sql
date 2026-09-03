@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(190) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     rol VARCHAR(50) DEFAULT 'admin',
+    professional_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

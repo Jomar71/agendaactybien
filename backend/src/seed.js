@@ -12,10 +12,11 @@
 const bcrypt = require('bcryptjs');
 const pool = require('./config/db');
 
-// Usuario por defecto que coincide con el login que ya trae el frontend
-// pre-llenado (paola@terapia / pao1234567). CÁMBIALO en producción.
+// Usuarios por defecto que coinciden con el login que ya trae el frontend.
+// CÁMBIALOS en producción.
 const DEFAULT_USERS = [
-  { email: 'paola@terapia', password: 'pao1234567', nombre: 'Paola' }
+  { email: 'paola@terapia', password: 'pao1234567', nombre: 'Paola', rol: 'admin', professional_id: 2 },
+  { email: 'anabeli@terapia', password: 'anabeli1234567', nombre: 'Dr. Anabeli Córdoba', rol: 'terapeuta', professional_id: 1 }
 ];
 
 // Contactos iniciales de Mi Directorio (vinculados al usuario anterior)
@@ -68,8 +69,8 @@ async function seed() {
       const salt = await bcrypt.genSalt(10);
       const hash = await bcrypt.hash(u.password, salt);
       const result = await pool.query(
-        `INSERT INTO users (nombre, email, password, rol) VALUES (?, ?, ?, ?)`,
-        [u.nombre, u.email, hash, 'admin']
+        `INSERT INTO users (nombre, email, password, rol, professional_id) VALUES (?, ?, ?, ?, ?)`,
+        [u.nombre, u.email, hash, u.rol, u.professional_id]
       );
       userId = result.insertId;
       console.log(`✅ Usuario creado: ${u.email} (id=${userId})`);

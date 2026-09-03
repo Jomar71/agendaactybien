@@ -16,6 +16,15 @@ const Cita = {
     return result.rows;
   },
 
+  // Obtener todas las citas donde el profesional_id coincide (terapeuta)
+  findAllByProfessional: async (professionalId) => {
+    const result = await pool.query(
+      'SELECT * FROM citas WHERE professional_id = ? ORDER BY fecha DESC, hora ASC',
+      [professionalId]
+    );
+    return result.rows;
+  },
+
   // Obtener una cita por id (si pertenece al usuario)
   findById: async (id, userId) => {
     const result = await pool.query(

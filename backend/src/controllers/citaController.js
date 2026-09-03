@@ -6,9 +6,15 @@ const Cita = require('../models/Cita');
  */
 const citaController = {
   // GET /api/citas → lista de citas del usuario
+  //  - Admin: ve sus propias citas (user_id).
+  //  - Terapeuta: ve las citas donde es el profesional (professional_id),
+  //    sin importar quién las haya creado.
   getAll: async (req, res) => {
     try {
-      const citas = await Cita.findAllByUser(req.user.id);
+      const user = req.user;
+      const citas = user.rol === 'terapeuta'
+        ? await Cita.findAllByProfessional(user.professional_id)
+        : await Cita.findAllByUser(user.id);
       res.json(citas);
     } catch (error) {
       console.error('Error getting citas:', error);

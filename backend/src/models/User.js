@@ -9,18 +9,18 @@ const User = {
 
   // Find user by ID
   findById: async (id) => {
-    const result = await pool.query('SELECT id, nombre, email, rol, created_at FROM users WHERE id = ?', [id]);
+    const result = await pool.query('SELECT id, nombre, email, rol, professional_id, created_at FROM users WHERE id = ?', [id]);
     return result.rows[0];
   },
 
   // Create a new user
-  create: async (nombre, email, hashedPassword) => {
+  create: async (nombre, email, hashedPassword, rol = 'admin', professionalId = null) => {
     const insert = await pool.query(
-      'INSERT INTO users (nombre, email, password, rol) VALUES (?, ?, ?, ?)',
-      [nombre, email, hashedPassword, 'admin']
+      'INSERT INTO users (nombre, email, password, rol, professional_id) VALUES (?, ?, ?, ?, ?)',
+      [nombre, email, hashedPassword, rol, professionalId]
     );
     const result = await pool.query(
-      'SELECT id, nombre, email, rol, created_at FROM users WHERE id = ?',
+      'SELECT id, nombre, email, rol, professional_id, created_at FROM users WHERE id = ?',
       [insert.insertId]
     );
     return result.rows[0];
@@ -28,7 +28,7 @@ const User = {
 
   // Get all users
   findAll: async () => {
-    const result = await pool.query('SELECT id, nombre, email, rol, created_at FROM users');
+    const result = await pool.query('SELECT id, nombre, email, rol, professional_id, created_at FROM users');
     return result.rows;
   }
 };

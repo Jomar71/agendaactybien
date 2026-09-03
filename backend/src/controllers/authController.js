@@ -8,10 +8,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'agendaactybien_clave_jwt_super_sec
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const authController = {
-  // Register a new admin user
+  // Register a new user (admin por defecto; admite rol/profesional)
   register: async (req, res) => {
     try {
-      const { nombre, email, password } = req.body;
+      const { nombre, email, password, rol = 'admin', professionalId = null } = req.body;
 
       // Check if user already exists
       const existingUser = await User.findByEmail(email);
@@ -24,7 +24,7 @@ const authController = {
       const hashedPassword = await bcrypt.hash(password, salt);
 
       // Create user
-      const newUser = await User.create(nombre, email, hashedPassword);
+      const newUser = await User.create(nombre, email, hashedPassword, rol, professionalId);
 
       // Generate token
       const token = jwt.sign(
@@ -40,7 +40,8 @@ const authController = {
           id: newUser.id,
           nombre: newUser.nombre,
           email: newUser.email,
-          rol: newUser.rol
+          rol: newUser.rol,
+          professionalId: newUser.professional_id
         }
       });
     } catch (error) {
@@ -80,7 +81,8 @@ const authController = {
           id: user.id,
           nombre: user.nombre,
           email: user.email,
-          rol: user.rol
+          rol: user.rol,
+          professionalId: user.professional_id
         }
       });
     } catch (error) {
@@ -103,6 +105,7 @@ const authController = {
           nombre: user.nombre,
           email: user.email,
           rol: user.rol,
+          professionalId: user.professional_id,
           created_at: user.created_at
         }
       });
