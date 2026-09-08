@@ -40,13 +40,15 @@ const citaController = {
   // POST /api/citas → crea una cita
   create: async (req, res) => {
     try {
-      const required = ['fecha', 'hora', 'tutorNombre', 'pacienteNombre'];
+      const required = ['fecha', 'hora', 'tutorNombre', 'pacienteNombre', 'modalidad'];
       const missing = required.filter(f => {
         const v = req.body[f];
-        return v === undefined || v === null || v === '';
+        return (f === 'modalidad')
+          ? !['presencial', 'virtual'].includes(v)
+          : (v === undefined || v === null || v === '');
       });
       if (missing.length) {
-        return res.status(400).json({ message: `Campos obligatorios faltantes: ${missing.join(', ')}` });
+        return res.status(400).json({ message: `Campos obligatorios faltantes o inválidos: ${missing.join(', ')}` });
       }
 
       const cita = await Cita.create(req.user.id, req.body);

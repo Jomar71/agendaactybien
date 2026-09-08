@@ -1,7 +1,7 @@
 {
   "name": "agenda-actitud-y-bienestar-backend",
   "version": "1.0.0",
-  "description": "Backend API para la plataforma Actitud & Bienestar (Atención Psicológica Infantil y Juvenil)",
+  "description": "Backend API para la plataforma Actitud & Bienestar (Atención Psicológica Infantil, Juvenil y Adultos)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

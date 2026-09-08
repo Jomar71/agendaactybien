@@ -42,6 +42,7 @@ const TABLES = [
     email VARCHAR(120) NULL,
     motivo TEXT NULL,
     motivo_detalle TEXT NULL,
+    modalidad VARCHAR(20) DEFAULT 'presencial',
     reminder_offset INT NULL,
     reminder_sound VARCHAR(40) DEFAULT 'timbre',
     estado VARCHAR(20) DEFAULT 'confirmada',
@@ -143,8 +144,26 @@ async function ensureUsersProfessionalColumn() {
   }
 }
 
+/**
+ * Asegura la columna modalidad en la tabla citas (migración segura para
+ * tablas ya creadas en versiones anteriores que no la tienen). En PostgreSQL
+ * se usa IF NOT EXISTS; en MySQL se captura el error de columna duplicada.
+ */
+async function ensureCitasModalidadColumn() {
+  const sql = pool.engine === 'postgres'
+    ? "ALTER TABLE citas ADD COLUMN IF NOT EXISTS modalidad VARCHAR(20) DEFAULT 'presencial'"
+    : "ALTER TABLE citas ADD COLUMN modalidad VARCHAR(20) DEFAULT 'presencial'";
+  try {
+    await pool.query(sql);
+    console.log('➕ Columna modalidad añadida a la tabla citas.');
+  } catch (e) {
+    // Columna ya existente (duplicate column) o motor sin soporte → ignorar.
+  }
+}
+
 async function seedUsers() {
   await ensureUsersProfessionalColumn();
+  await ensureCitasModalidadColumn();
   for (const u of DEFAULT_USERS) {
     const existing = await pool.query('SELECT id FROM users WHERE email = ?', [u.email]);
     if (existing.rows.length > 0) {

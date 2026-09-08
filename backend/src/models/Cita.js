@@ -40,8 +40,9 @@ const Cita = {
       `INSERT INTO citas
         (user_id, professional_id, professional_name, professional_specialty,
          tutor_nombre, paciente_nombre, paciente_edad, fecha, hora,
-         telefono, email, motivo, motivo_detalle, reminder_offset, reminder_sound, estado)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         telefono, email, motivo, motivo_detalle, modalidad,
+         reminder_offset, reminder_sound, estado)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         userId,
         data.professionalId ?? null,
@@ -56,6 +57,7 @@ const Cita = {
         data.email ?? null,
         data.motivo ?? null,
         data.motivoDetalle ?? null,
+        data.modalidad || 'presencial',
         (data.reminderOffset === null || data.reminderOffset === undefined) ? null : data.reminderOffset,
         data.reminderSound || 'timbre',
         data.estado || 'confirmada'
@@ -84,6 +86,7 @@ const Cita = {
          email = COALESCE(?, email),
          motivo = COALESCE(?, motivo),
          motivo_detalle = COALESCE(?, motivo_detalle),
+         modalidad = COALESCE(?, modalidad),
          reminder_offset = COALESCE(?, reminder_offset),
          reminder_sound = COALESCE(?, reminder_sound),
          estado = COALESCE(?, estado)
@@ -101,6 +104,7 @@ const Cita = {
         data.email ?? null,
         data.motivo ?? null,
         data.motivoDetalle ?? null,
+        data.modalidad ?? null,
         (data.reminderOffset === null || data.reminderOffset === undefined) ? null : data.reminderOffset,
         data.reminderSound ?? null,
         data.estado ?? null,

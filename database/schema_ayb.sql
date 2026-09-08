@@ -1,6 +1,6 @@
 -- =====================================================================
 -- ACTITUD & BIENESTAR – Esquema de Base de Datos MySQL
--- Plataforma de Agendamiento Psicológico Infantil y Juvenil
+-- Plataforma de Agendamiento Psicológico Infantil, Juvenil y Adultos
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS citas (
     email VARCHAR(120) NULL,
     motivo TEXT NULL,
     motivo_detalle TEXT NULL,
+    modalidad VARCHAR(20) DEFAULT 'presencial',  -- presencial | virtual
     reminder_offset INT NULL,
     reminder_sound VARCHAR(40) DEFAULT 'timbre',
     estado VARCHAR(20) DEFAULT 'confirmada',

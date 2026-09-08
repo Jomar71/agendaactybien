@@ -1,7 +1,7 @@
 {
   "name": "Actitud & Bienestar",
   "short_name": "A&B",
-  "description": "Plataforma de agendamiento de citas para atención psicológica infantil y juvenil, y asistente de tareas terapéuticas.",
+  "description": "Plataforma de agendamiento de citas para atención psicológica infantil, juvenil y adultos, y asistente de tareas terapéuticas.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

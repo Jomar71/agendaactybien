@@ -1,5 +1,5 @@
 /* =====================================================================
-   ACTITUD & BIENESTAR – GESTIÓN TERAPÉUTICA INFANTIL Y JUVENIL
+   ACTITUD & BIENESTAR – GESTIÓN TERAPÉUTICA INFANTIL, JUVENIL Y ADULTOS
    app.js – Lógica principal de la SPA con Autenticación, Mi Directorio,
             Avisos con Timbre, Mis Tareas, Mi Agenda y Mi Historial
    Versión: 4.0.0 (backend-first: REST + JWT, servidor autoritativo)
@@ -23,7 +23,7 @@ const PROFESSIONALS = [
     id: 1,
     nombre: 'Dra. Anabeli Córdoba',
     especialidad: 'Psicología Clínica',
-    descripcion: 'Atención psicológica clínica integral para niños, niñas y adolescentes: evaluación, diagnóstico y tratamiento de dificultades emocionales y conductuales.',
+    descripcion: 'Atención psicológica clínica integral para niños, niñas, adolescentes y adultos: evaluación, diagnóstico y tratamiento de dificultades emocionales y conductuales.',
     emoji: '🧠'
   },
   {
@@ -35,24 +35,50 @@ const PROFESSIONALS = [
   }
 ];
 
-/** Motivos de consulta predefinidos */
+/** Motivos de consulta predefinidos (ordenados por relevancia clínica:
+ *  primero los motivos de mayor urgencia/seguridad, al final los de
+ *  seguimiento y "otro"). */
 const MOTIVOS = [
   'Ansiedad o miedos excesivos',
+  'Tristeza, desánimo o aislamiento social',
+  'Conductas autolesivas no suicidas',
+  'Ideación suicida',
   'Problemas de conducta o rabietas frecuentes',
   'Bajo rendimiento escolar o desmotivación',
-  'Tristeza, desánimo o aislamiento social',
   'Déficit de atención e hiperactividad (TDAH)',
   'Dificultades en el sueño o pesadillas',
   'Problemas en la dinámica o comunicación familiar',
   'Acoso escolar (bullying)',
   'Procesos de duelo o separación familiar',
   'Evaluación psicológica/neuropsicológica integral',
+  'Sesión de seguimiento',
   'Otro motivo'
 ];
 
-/** Horarios disponibles (franjas de 5 minutos, de 08:00 a 17:30) */
+/** Rango horario permitido para agendar citas (07:00 a 23:00).
+ *  Se usa para validar cualquier hora seleccionada y mostrar un mensaje
+ *  claro si queda fuera del rango. */
+const APPOINTMENT_TIME_RANGE = { start: '07:00', end: '23:00' };
+
+/** Compara dos horas 'HH:MM' como cadenas normalizadas (válidas porque
+ *  ambas usan el formato de 24 horas con dos dígitos). */
+function timeToMinutes(t) {
+  const [h, m] = String(t || '').split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return -1;
+  return h * 60 + m;
+}
+
+function isTimeInRange(t) {
+  const minutes = timeToMinutes(t);
+  return minutes >= timeToMinutes(APPOINTMENT_TIME_RANGE.start) &&
+         minutes <= timeToMinutes(APPOINTMENT_TIME_RANGE.end);
+}
+
+/** Horarios disponibles (franjas de 5 minutos, de 07:00 a 23:00).
+ *  El incremento de 5 minutos se conserva para que las citas ya agendadas
+ *  en años anteriores (capturadas en franjas de :05) sigan visualizándose. */
 const TIME_SLOTS = [];
-for (let m = 8 * 60; m <= 17 * 60 + 30; m += 5) {
+for (let m = 7 * 60; m <= 23 * 60; m += 5) {
   TIME_SLOTS.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 }
 
@@ -281,6 +307,7 @@ function normalizeCitaFromServer(c) {
     email: c.email,
     motivo: c.motivo,
     motivoDetalle: c.motivo_detalle,
+    modalidad: c.modalidad || 'presencial',
     reminderOffset: c.reminder_offset,
     reminderSound: c.reminder_sound,
     estado: c.estado || 'confirmada',
@@ -333,6 +360,7 @@ function citaToServer(c) {
     email: c.email,
     motivo: c.motivo,
     motivoDetalle: c.motivoDetalle,
+    modalidad: c.modalidad || 'presencial',
     reminderOffset: c.reminderOffset,
     reminderSound: c.reminderSound,
     estado: c.estado || 'confirmada'
@@ -441,22 +469,37 @@ let state = {
   contacts: []
 };
 
+/** Estado por defecto del formulario de agendamiento en Mi Agenda.
+ *  Se usa como fábrica para poder reiniciar el formulario por completo
+ *  después de cada cita guardada (permite agendar varias citas seguidas
+ *  sin recargar la página). */
+function defaultAppointmentForm() {
+  return {
+    step: 1,
+    professionalId: null,
+    date: null,
+    time: null,
+    tutorNombre: '',
+    pacienteNombre: '',
+    pacienteEdad: '',
+    telefono: '',
+    email: '',
+    motivo: '',
+    motivoDetalle: '',
+    modalidad: 'presencial',
+    // Aviso por defecto: 10 minutos antes (la alarma avisa antes de la cita).
+    reminderOffset: 10,
+    reminderSound: 'timbre'
+  };
+}
+
 /** Formulario temporal para agendamiento en Mi Agenda */
-let appointmentForm = {
-  step: 1,
-  professionalId: null,
-  date: null,
-  time: null,
-  tutorNombre: '',
-  pacienteNombre: '',
-  pacienteEdad: '',
-  telefono: '',
-  email: '',
-  motivo: '',
-  motivoDetalle: '',
-  reminderOffset: null,
-  reminderSound: 'timbre'
-};
+let appointmentForm = defaultAppointmentForm();
+
+/** Reinicia el formulario de cita a sus valores iniciales. */
+function resetAppointmentForm() {
+  appointmentForm = defaultAppointmentForm();
+}
 
 /** Estado del calendario de Mis Tareas */
 let calendarState = {
@@ -1197,7 +1240,7 @@ async function renderHome(el) {
                    <div>
                      <strong style="color:var(--dark);font-size:0.95rem">${escapeHtml(a.pacienteNombre)} (${a.pacienteEdad} años)</strong>
                      <div style="font-size:0.83rem;color:var(--teal);font-weight:600;margin-top:2px">👨‍⚕️ ${escapeHtml(a.professionalName)}</div>
-                     <div style="font-size:0.8rem;color:var(--gray);margin-top:2px">📅 ${formatDate(a.fecha)} · ⏰ ${a.hora}</div>
+                     <div style="font-size:0.8rem;color:var(--gray);margin-top:2px">📅 ${formatDate(a.fecha)} · ⏰ ${a.hora} · 📍 ${a.modalidad === 'virtual' ? 'Virtual' : 'Presencial'}</div>
                    </div>
                    <span class="badge badge-${escapeHtml(a.estado)}">${escapeHtml(a.estado)}</span>
                  </div>
@@ -1271,7 +1314,7 @@ async function renderTerapeutaAgenda(el) {
         <strong>${formatDateShort(a.fecha)} · ${escapeHtml(a.hora)}</strong>
         <span>🧒 ${escapeHtml(a.pacienteNombre)} ${a.pacienteEdad ? `(${a.pacienteEdad} años)` : ''} — ${escapeHtml(a.tutorNombre)}</span>
         <span style="font-size:0.82rem;color:var(--gray);margin-top:2px">📅 ${formatDate(a.fecha)} · ⏰ ${escapeHtml(a.hora)}</span>
-        <span style="font-size:0.82rem;color:var(--gray)">💬 Motivo: ${escapeHtml(a.motivo) || '—'}</span>
+        <span style="font-size:0.82rem;color:var(--gray)">📍 Modalidad: ${a.modalidad === 'virtual' ? 'Virtual' : 'Presencial'} · 💬 Motivo: ${escapeHtml(a.motivo) || '—'}</span>
       </div>
       <span class="badge badge-${escapeHtml(a.estado)}">${escapeHtml(a.estado)}</span>
     </li>
@@ -1313,21 +1356,8 @@ async function renderTerapeutaAgenda(el) {
    9. VISTA 2: MI AGENDA (SINCRONIZACIÓN DIRECTA CON MI DIRECTORIO)
    ===================================================================== */
 async function renderAppointment(el) {
-  Object.assign(appointmentForm, {
-    step: 1,
-    professionalId: null,
-    date: null,
-    time: null,
-    tutorNombre: '',
-    pacienteNombre: '',
-    pacienteEdad: '',
-    telefono: '',
-    email: '',
-    motivo: '',
-    motivoDetalle: '',
-    reminderOffset: null,
-    reminderSound: 'timbre'
-  });
+  // Formulario en blanco cada vez que se abre Mi Agenda (o tras agendar).
+  resetAppointmentForm();
 
   const dataError = await catchLoad(() => loadAppointments());
   const todayStr = new Date().toISOString().split('T')[0];
@@ -1493,6 +1523,13 @@ function openRescheduleAppointmentModal(appointment, onDone) {
         ${MOTIVOS.map(m => `<option value="${escapeHtml(m)}" ${m === appointment.motivo ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
       </select>
     </div>
+    <div class="form-group">
+      <label for="rs-modalidad">📍 Modalidad de la cita <span style="color:var(--danger)">*</span></label>
+      <select id="rs-modalidad" aria-required="true">
+        <option value="presencial" ${(appointment.modalidad || 'presencial') === 'presencial' ? 'selected' : ''}>🏢 Presencial (consultorio)</option>
+        <option value="virtual" ${(appointment.modalidad || '') === 'virtual' ? 'selected' : ''}>💻 Virtual (videollamada)</option>
+      </select>
+    </div>
     <div class="form-group" style="margin-bottom:0">
       <label for="rs-motivo-detalle">Detalle adicional <span style="font-weight:400;color:var(--gray-light)">(opcional)</span></label>
       <textarea id="rs-motivo-detalle" rows="3" maxlength="600">${escapeHtml(appointment.motivoDetalle || '')}</textarea>
@@ -1540,6 +1577,8 @@ function openRescheduleAppointmentModal(appointment, onDone) {
     appointment.email = document.getElementById('rs-email').value.trim();
     appointment.motivo = document.getElementById('rs-motivo').value;
     appointment.motivoDetalle = document.getElementById('rs-motivo-detalle').value.trim();
+    const rsModalidad = document.getElementById('rs-modalidad');
+    if (rsModalidad && rsModalidad.value) appointment.modalidad = rsModalidad.value;
 
     // Guardar la cita en el backend; revertir si el servidor lo rechaza
     try {
@@ -1913,7 +1952,7 @@ function renderAppointmentStep3() {
 
       <fieldset style="border:none;padding:0">
         <legend style="font-weight:700;font-size:1.02rem;color:var(--green-dark);margin-bottom:14px">
-          🧒 Información del Paciente (Niño / Niña / Adolescente)
+          🧒 Información del Paciente (Niño / Niña / Adolescente / Adulto)
         </legend>
         <div class="form-group">
           <label for="f-paciente-nombre">Nombre completo del paciente <span style="color:var(--danger)">*</span></label>
@@ -1928,10 +1967,35 @@ function renderAppointmentStep3() {
           <input type="number" id="f-paciente-edad" name="pacienteEdad"
                  placeholder="Ej: 8"
                  value="${escapeHtml(appointmentForm.pacienteEdad)}"
-                 min="2" max="85" aria-required="true">
-          <div class="hint">Entre 2 y 85 años</div>
+                 min="2" max="120" aria-required="true">
+          <div class="hint">Desde la infancia hasta la adultez (2 a 120 años)</div>
           <div class="form-error" id="err-paciente-edad" role="alert" aria-live="polite"></div>
         </div>
+      </fieldset>
+
+      <fieldset style="border:none;margin-bottom:20px;padding:0" id="f-modalidad-fieldset">
+        <legend style="font-weight:700;font-size:1.02rem;color:var(--teal);margin-bottom:12px">
+          📍 Modalidad de la cita <span style="color:var(--danger)">*</span>
+        </legend>
+        <div class="modalidad-grid" role="radiogroup" aria-label="Modalidad de la cita (presencial o virtual)">
+          <label class="modalidad-option ${appointmentForm.modalidad === 'presencial' ? 'selected' : ''}">
+            <input type="radio" name="f-modalidad" value="presencial" id="f-modalidad-presencial"
+                   ${appointmentForm.modalidad === 'presencial' ? 'checked' : ''}
+                   aria-required="true">
+            <span class="modalidad-emoji" aria-hidden="true">🏢</span>
+            <span class="modalidad-label">Presencial</span>
+            <span class="modalidad-desc">Asistencia en el consultorio</span>
+          </label>
+          <label class="modalidad-option ${appointmentForm.modalidad === 'virtual' ? 'selected' : ''}">
+            <input type="radio" name="f-modalidad" value="virtual" id="f-modalidad-virtual"
+                   ${appointmentForm.modalidad === 'virtual' ? 'checked' : ''}
+                   aria-required="true">
+            <span class="modalidad-emoji" aria-hidden="true">💻</span>
+            <span class="modalidad-label">Virtual</span>
+            <span class="modalidad-desc">Sesión por videollamada</span>
+          </label>
+        </div>
+        <div class="form-error" id="err-modalidad" role="alert" aria-live="polite"></div>
       </fieldset>
 
       <div class="form-nav">
@@ -1959,6 +2023,32 @@ function renderAppointmentStep3() {
     });
   });
 
+  // Modalidad de la cita (Presencial / Virtual) — obligatoria
+  const modalidadRadios = el.querySelectorAll('input[name="f-modalidad"]');
+  modalidadRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      appointmentForm.modalidad = radio.value;
+      el.querySelectorAll('.modalidad-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.querySelector('input').checked);
+      });
+      const errEl = document.getElementById('err-modalidad');
+      if (errEl) errEl.textContent = '';
+      radio.removeAttribute('aria-invalid');
+    });
+    // Navegación por teclado dentro del grupo de radios (flechas ↑/↓)
+    radio.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const idx = Array.prototype.indexOf.call(modalidadRadios, radio);
+      const next = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+      if (next >= 0 && next < modalidadRadios.length) {
+        modalidadRadios[next].checked = true;
+        modalidadRadios[next].focus();
+        modalidadRadios[next].dispatchEvent(new Event('change'));
+      }
+    });
+  });
+
   function showError(inp, errId, msg) {
     const errEl = document.getElementById(errId);
     if (errEl) errEl.textContent = msg;
@@ -1974,8 +2064,13 @@ function renderAppointmentStep3() {
     if (!f.telefono.trim() || !isValidPhone(f.telefono)) { showError(inputs.telefono, 'err-telefono', 'Ingresa un teléfono válido (7-15 dígitos).'); valid = false; }
     if (!f.email.trim() || !isValidEmail(f.email)) { showError(inputs.email, 'err-email', 'Ingresa un correo electrónico válido.'); valid = false; }
     if (!f.pacienteNombre.trim()) { showError(inputs.pacienteNombre, 'err-paciente-nombre', 'Ingresa el nombre del paciente.'); valid = false; }
-    if (!f.pacienteEdad || parseInt(f.pacienteEdad) < 2 || parseInt(f.pacienteEdad) > 85) {
-      showError(inputs.pacienteEdad, 'err-paciente-edad', 'Ingresa una edad entre 2 y 85 años.');
+    if (!f.pacienteEdad || parseInt(f.pacienteEdad) < 2 || parseInt(f.pacienteEdad) > 120) {
+      showError(inputs.pacienteEdad, 'err-paciente-edad', 'Ingresa una edad entre 2 y 120 años.');
+      valid = false;
+    }
+    if (!f.modalidad) {
+      const errEl = document.getElementById('err-modalidad');
+      if (errEl) errEl.textContent = 'Selecciona la modalidad de la cita (Presencial o Virtual).';
       valid = false;
     }
     return valid;
@@ -2003,6 +2098,7 @@ function renderAppointmentStep4() {
           <strong>Resumen de tu cita:</strong><br>
           👨‍⚕️ Profesional: <strong>${escapeHtml(prof.nombre)}</strong> (${escapeHtml(prof.especialidad)})<br>
           📅 Fecha y Hora: <strong>${formatDate(appointmentForm.date)}</strong> a las <strong>${appointmentForm.time}</strong><br>
+          📍 Modalidad: <strong>${appointmentForm.modalidad === 'virtual' ? 'Virtual (videollamada)' : 'Presencial (consultorio)'}</strong><br>
           🧒 Paciente: <strong>${escapeHtml(appointmentForm.pacienteNombre)}</strong> (${appointmentForm.pacienteEdad} años) — Tutor: <strong>${escapeHtml(appointmentForm.tutorNombre)}</strong>
         </p>
       </div>
@@ -2092,6 +2188,11 @@ function renderAppointmentStep5() {
           <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
         </div>
         <div class="review-row" role="listitem">
+          <span class="review-label">📍 Modalidad</span>
+          <span class="review-value">${appointmentForm.modalidad === 'virtual' ? 'Virtual (videollamada)' : 'Presencial (consultorio)'}</span>
+          <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
+        </div>
+        <div class="review-row" role="listitem">
           <span class="review-label">👨‍👩‍👦 Tutor y contacto</span>
           <span class="review-value">${escapeHtml(appointmentForm.tutorNombre)} · ${escapeHtml(appointmentForm.telefono)} · ${escapeHtml(appointmentForm.email)}</span>
           <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
@@ -2139,6 +2240,17 @@ function renderAppointmentStep5() {
 async function submitAppointment() {
   const prof = getProfessional(appointmentForm.professionalId);
 
+  // Validación de rango horario (07:00 – 23:00) antes de guardar
+  if (!appointmentForm.time || !isTimeInRange(appointmentForm.time)) {
+    showToast(`⚠️ La hora seleccionada está fuera del rango permitido (${APPOINTMENT_TIME_RANGE.start} – ${APPOINTMENT_TIME_RANGE.end}). Elige otra hora.`, 'error');
+    renderAppointmentStep2();
+    return;
+  }
+
+  // La modalidad es obligatoria: si faltara por algún flujo antiguo, usar la
+  // presencial por defecto y avisar al usuario.
+  if (!appointmentForm.modalidad) appointmentForm.modalidad = 'presencial';
+
   const appointment = {
     id: null, // el servidor asigna el id real
     professionalId: appointmentForm.professionalId,
@@ -2153,6 +2265,7 @@ async function submitAppointment() {
     email: appointmentForm.email.trim(),
     motivo: appointmentForm.motivo,
     motivoDetalle: (appointmentForm.motivoDetalle || '').trim(),
+    modalidad: appointmentForm.modalidad,
     reminderOffset: appointmentForm.reminderOffset,
     reminderSound: appointmentForm.reminderSound,
     estado: 'confirmada'
@@ -2216,6 +2329,11 @@ async function submitAppointment() {
   const el = document.getElementById('form-step-content');
   if (!el) return;
 
+  // Limpiar el formulario por completo: así se puede agendar otra cita de
+  // inmediato, sin refrescar la página (todos los campos, selects y avisos
+  // vuelven a su estado inicial).
+  resetAppointmentForm();
+
   el.innerHTML = `
     <div class="form-card confirmation-card" role="region" aria-label="Confirmación de cita">
       <div class="confirmation-icon" aria-hidden="true">✓</div>
@@ -2227,6 +2345,7 @@ async function submitAppointment() {
       <div class="confirmation-details" role="list">
         <div role="listitem"><strong>Especialista:</strong><span>${escapeHtml(appointment.professionalName)}</span></div>
         <div role="listitem"><strong>Fecha y Hora:</strong><span>${formatDate(appointment.fecha)} a las ${appointment.hora}</span></div>
+        <div role="listitem"><strong>Modalidad:</strong><span>${appointment.modalidad === 'virtual' ? 'Virtual (videollamada)' : 'Presencial (consultorio)'}</span></div>
         <div role="listitem"><strong>Paciente:</strong><span>${escapeHtml(appointment.pacienteNombre)} (${appointment.pacienteEdad} años)</span></div>
         <div role="listitem"><strong>Tutor:</strong><span>${escapeHtml(appointment.tutorNombre)} (${escapeHtml(appointment.telefono)})</span></div>
         <div role="listitem"><strong>Motivo:</strong><span>${escapeHtml(appointment.motivo)}</span></div>
@@ -2249,10 +2368,26 @@ async function submitAppointment() {
       <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
         <a href="#/directorio" class="btn btn-primary" data-nav>Ver en Mi Directorio 👥</a>
         <a href="#/historial" class="btn btn-outline" data-nav>Ver Mi Historial 📜</a>
-        <a href="#/agendar" class="btn btn-secondary" data-nav>Agendar otra Cita 📅</a>
+        <button type="button" id="btn-agendar-otra" class="btn btn-secondary">Agendar otra Cita 📅</button>
       </div>
     </div>
   `;
+
+  // "Agendar otra Cita": re-renderiza Mi Agenda con el formulario limpio y los
+  // horarios reservados actualizados, sin necesidad de refrescar la página.
+  const btnOtra = document.getElementById('btn-agendar-otra');
+  if (btnOtra) {
+    btnOtra.addEventListener('click', () => {
+      const container = document.getElementById('content');
+      if (!container) return;
+      resetAppointmentForm();
+      container.innerHTML = pageLoadingHTML();
+      renderAppointment(container).catch((err) => {
+        console.error('Error al volver al formulario de cita:', err);
+        container.innerHTML = dataErrorBannerHTML(err && err.message);
+      });
+    });
+  }
 
   // Envío MANUAL: el usuario revisó la cita en el paso 5 y decide cuándo
   // enviar la confirmación (abre WhatsApp con el mensaje ya armado).
@@ -2283,6 +2418,13 @@ function normalizeWhatsAppPhone(phone) {
 
 /** Genera el mensaje personalizado de confirmación con los datos de la cita */
 function buildWhatsAppMessage(appointment) {
+  const modalidadTexto = appointment.modalidad === 'virtual'
+    ? 'Virtual (videollamada)'
+    : 'Presencial (consultorio)';
+  const indicacion = appointment.modalidad === 'virtual'
+    ? 'Te compartiremos el enlace para la videollamada.'
+    : 'Por favor, llega 10 minutos antes.';
+
   return [
     '📅 *Confirmación de Cita - Actitud & Bienestar*',
     '',
@@ -2294,9 +2436,10 @@ function buildWhatsAppMessage(appointment) {
     `👨‍⚕️ Profesional: ${appointment.professionalName}`,
     `📆 Fecha: ${formatDate(appointment.fecha)}`,
     `🕐 Hora: ${appointment.hora}`,
+    `📍 Modalidad: ${modalidadTexto}`,
     `📝 Motivo: ${appointment.motivo}`,
     '',
-    'Por favor, llega 10 minutos antes.',
+    indicacion,
     'Si necesitas cancelar o reprogramar, contáctanos.',
     '',
     '¡Te esperamos! 💚'
@@ -3112,6 +3255,7 @@ async function renderHistory(el) {
                      <div class="history-card-body">
                        <div>📅 <strong>Fecha:</strong> ${formatDate(a.fecha)}</div>
                        <div>⏰ <strong>Hora:</strong> ${a.hora}</div>
+                       <div>📍 <strong>Modalidad:</strong> ${a.modalidad === 'virtual' ? 'Virtual' : 'Presencial'}</div>
                        <div>🧒 <strong>Paciente:</strong> ${escapeHtml(a.pacienteNombre)} (${a.pacienteEdad} años)</div>
                        <div>👤 <strong>Tutor:</strong> ${escapeHtml(a.tutorNombre)} (📱 ${escapeHtml(a.telefono)})</div>
                        ${a.motivoDetalle ? `<div style="font-size:0.82rem;color:var(--gray);background:var(--warm-white);padding:8px;border-radius:var(--radius-xs);margin-top:6px"><em>${escapeHtml(a.motivoDetalle)}</em></div>` : ''}
@@ -3216,6 +3360,7 @@ async function renderHistory(el) {
           <div style="display:flex;flex-direction:column;gap:10px;font-size:0.92rem;color:var(--dark)">
             <div><strong>Profesional:</strong> ${escapeHtml(a.professionalName)} (${escapeHtml(a.professionalSpecialty || 'Psicología')})</div>
             <div><strong>Fecha y Hora:</strong> ${formatDate(a.fecha)} a las ${a.hora}</div>
+            <div><strong>Modalidad:</strong> ${a.modalidad === 'virtual' ? 'Virtual (videollamada)' : 'Presencial (consultorio)'}</div>
             <div><strong>Paciente:</strong> ${escapeHtml(a.pacienteNombre)} (${a.pacienteEdad} años)</div>
             <div><strong>Tutor:</strong> ${escapeHtml(a.tutorNombre)}</div>
             <div><strong>Teléfono:</strong> <a href="tel:${escapeHtml(a.telefono)}" style="color:var(--teal)">${escapeHtml(a.telefono)}</a></div>
@@ -3641,6 +3786,33 @@ const REMINDER_SOUNDS = {
 const CUSTOM_SOUNDS_KEY = 'ayb_custom_sounds';
 const NOTIFIED_KEY = 'ayb_reminder_notified';
 
+/** Preferencias globales de la alarma (volumen 0–1 y duración en segundos).
+ *  - volumen: 0 (silencio) a 1 (máximo). Por defecto 1 (todo el volumen).
+ *  - duracion: 10 (mínimo) / 20 / 0 = "hasta que la detenga el usuario". */
+const ALARM_SETTINGS_KEY = 'ayb_alarm_settings';
+const DEFAULT_ALARM_SETTINGS = { volume: 1, duracion: 10 };
+let alarmSettings = { ...DEFAULT_ALARM_SETTINGS };
+
+function loadAlarmSettings() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ALARM_SETTINGS_KEY)) || {};
+    alarmSettings = {
+      volume: typeof raw.volume === 'number' ? Math.min(1, Math.max(0, raw.volume)) : DEFAULT_ALARM_SETTINGS.volume,
+      duracion: raw.duracion === 0 ? 0 : (Number(raw.duracion) || DEFAULT_ALARM_SETTINGS.duracion)
+    };
+  } catch {
+    alarmSettings = { ...DEFAULT_ALARM_SETTINGS };
+  }
+}
+
+function saveAlarmSettings() {
+  try {
+    localStorage.setItem(ALARM_SETTINGS_KEY, JSON.stringify(alarmSettings));
+  } catch (e) {
+    console.error('Error al guardar la configuración de la alarma:', e);
+  }
+}
+
 let customSounds = {};
 
 function loadCustomSounds() {
@@ -3727,8 +3899,10 @@ function tone(ctx, freq, start, dur, vol = 0.8) {
   osc.frequency.value = freq;
   osc.connect(gain);
   gain.connect(ctx.destination);
+  // Escala el volumen de la nota según la preferencia global de la alarma
+  const effectiveVol = Math.min(1, Math.max(0, vol * (alarmSettings.volume ?? 1)));
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(vol, start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(effectiveVol, start + 0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
   osc.start(start);
   osc.stop(start + dur + 0.05);
@@ -3752,6 +3926,7 @@ function playSoundByKey(key, customDataUrl) {
       const dataUrl = customDataUrl || resolveCustomSound(key)?.dataUrl;
       if (dataUrl) {
         const audio = new Audio(dataUrl);
+        audio.volume = alarmSettings.volume ?? 1; // respeta el volumen global
         audio.play().catch(() => {});
       }
       return;
@@ -3797,11 +3972,75 @@ function unlockAudioOnGesture() {
   document.addEventListener('touchstart', warm);
 }
 
+/** Referencia a la alarma activa en este momento (sonido + vibración + título).
+ *  Permite detenerlo todo desde el botón "Entendido", con Escape o al agotarse
+ *  la duración configurada. */
+let activeAlarm = null;
+
+/** Detiene por completo la alarma activa: sonido en bucle, vibración y
+ *  parpadeo del título. Restaura además el título original de la pestaña. */
+function stopActiveAlarm() {
+  if (!activeAlarm) return;
+  try {
+    if (activeAlarm.soundTimer) clearInterval(activeAlarm.soundTimer);
+    if (activeAlarm.autoStopTimer) clearTimeout(activeAlarm.autoStopTimer);
+    if (activeAlarm.titleTimer) clearInterval(activeAlarm.titleTimer);
+    if (navigator.vibrate) navigator.vibrate(0); // corta la vibración en curso
+    if (activeAlarm.originalTitle !== null) document.title = activeAlarm.originalTitle;
+  } catch (e) {
+    console.warn('Error al detener la alarma:', e);
+  } finally {
+    activeAlarm = null;
+  }
+}
+
+/** Arranca la alarma: sonido en bucle, vibración prolongada y parpadeo del
+ *  título cuando la app está en otra pestaña. Dura al menos "duracion"
+ *  segundos (o hasta que el usuario la detenga si duracion = 0). */
+function startActiveAlarm(title, soundKey) {
+  const originalTitle = document.title;
+  const custom = resolveCustomSound(soundKey);
+  const play = () => playSoundByKey(soundKey || 'timbre', custom && custom.dataUrl);
+
+  // Repite el sonido y la vibración cada ~1.7s mientras la alarma esté activa.
+  const loop = () => {
+    play();
+    if (navigator.vibrate) navigator.vibrate([300, 120, 300, 250, 300]);
+  };
+  loop();
+  const soundTimer = setInterval(loop, 1700);
+
+  // Parpadeo del título de la pestaña si el usuario está en otra pestaña
+  let blink = false;
+  const titleTimer = setInterval(() => {
+    if (document.hidden) {
+      blink = !blink;
+      document.title = blink ? `🔔 ${title}` : originalTitle;
+    } else if (document.title !== originalTitle) {
+      document.title = originalTitle;
+    }
+  }, 900);
+
+  const durMs = (Number(alarmSettings.duracion) || 0) * 1000;
+  activeAlarm = {
+    soundTimer,
+    titleTimer,
+    originalTitle,
+    autoStopTimer: durMs > 0 ? setTimeout(() => {
+      const ov = document.getElementById('alarm-overlay');
+      if (ov) ov.remove();
+      stopActiveAlarm();
+    }, durMs) : null
+  };
+}
+
 /** Alarma visible dentro de la app (funciona aunque las notificaciones
  *  del sistema estén bloqueadas). Se reemplaza si hay varias a la vez. */
-function openAlarmOverlay(title, body) {
+function openAlarmOverlay(title, body, soundKey) {
   const existing = document.getElementById('alarm-overlay');
   if (existing) existing.remove();
+  // Si sonaba otra alarma, detenerla antes de mostrar la nueva
+  stopActiveAlarm();
 
   const overlay = document.createElement('div');
   overlay.id = 'alarm-overlay';
@@ -3814,13 +4053,30 @@ function openAlarmOverlay(title, body) {
       <div class="alarm-icon" aria-hidden="true">🔔</div>
       <h2 id="alarm-title">${escapeHtml(title)}</h2>
       <div class="alarm-body">${escapeHtml(body)}</div>
+      <p class="alarm-hint">La alarma sigue sonando hasta que pulses el botón.</p>
       <button type="button" class="btn btn-primary" id="alarm-ok">✓ Entendido</button>
     </div>`;
   document.body.appendChild(overlay);
 
   const ok = overlay.querySelector('#alarm-ok');
   ok.focus();
-  ok.addEventListener('click', () => overlay.remove());
+
+  const dismiss = () => {
+    stopActiveAlarm();
+    overlay.remove();
+  };
+  ok.addEventListener('click', dismiss);
+
+  // Detener también con la tecla Escape (accesible por teclado)
+  const handleKey = (e) => {
+    if (e.key === 'Escape') {
+      dismiss();
+      document.removeEventListener('keydown', handleKey);
+    }
+  };
+  document.addEventListener('keydown', handleKey);
+
+  startActiveAlarm(title, soundKey);
 
   showToast(`🔔 ${body}`, 'info');
 }
@@ -3834,32 +4090,33 @@ function fireReminder(item) {
     ? `Cita: ${item.pacienteNombre} · ${item.professionalName} · ${dayLabel} a las ${item.hora}`
     : `${item.title} · ${dayLabel}${item.time ? ' a las ' + item.time : ''}`;
 
-  // Vibración en móviles (se usa junto con el sonido)
-  if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
+  // Alarma completa (sonido en bucle + vibración larga + parpadeo del título)
+  openAlarmOverlay(title, body, item.reminderSound || 'timbre');
 
-  openAlarmOverlay(title, body);
-
+  // Notificación del sistema persistente (requireInteraction la mantiene hasta
+  // que el usuario actúe sobre ella, con vibración propia en móviles)
   if (isNotificationSupported() && Notification.permission === 'granted') {
     try {
       const notification = new Notification(title, {
         body,
         icon: 'img/logo/LOGO ACTITUD Y BIENESTAR SIN FONDO.png',
         tag: item.key,
-        vibrate: [120, 80, 120]
+        vibrate: [300, 120, 300, 250, 300],
+        requireInteraction: true
       });
       notification.onclick = () => {
         window.focus();
         window.location.hash = isAppt ? '#/agendar' : '#/tareas';
         notification.close();
+        // Quitar la alarma visible y sus efectos al hacer clic en la notificación
+        const ov = document.getElementById('alarm-overlay');
+        if (ov) ov.remove();
+        stopActiveAlarm();
       };
     } catch (e) {
       console.warn('No se pudo mostrar la notificación:', e);
     }
   }
-
-  // Sonido elegido para ESTA cita o tarea concreta
-  const custom = resolveCustomSound(item.reminderSound);
-  playSoundByKey(item.reminderSound || 'timbre', custom && custom.dataUrl);
 }
 
 /** Convierte fecha+hora (o por defecto 09:00) en un Date */
@@ -3986,6 +4243,22 @@ function reminderFieldsHTML(values = {}, prefix = 'rem') {
         </div>
       </div>
 
+      <div class="form-row-inline">
+        <div>
+          <label for="${prefix}-vol">Volumen 🔊 <span class="hint-inline" id="${prefix}-vol-label"></span></label>
+          <input type="range" id="${prefix}-vol" min="0" max="100" step="5" value="${Math.round((alarmSettings.volume ?? 1) * 100)}"
+                 aria-label="Volumen de la alarma" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round((alarmSettings.volume ?? 1) * 100)}">
+        </div>
+        <div>
+          <label for="${prefix}-dur">Duración de la alarma</label>
+          <select id="${prefix}-dur" aria-label="Cuánto tiempo debe sonar la alarma">
+            <option value="10" ${(alarmSettings.duracion || 10) === 10 ? 'selected' : ''}>10 segundos</option>
+            <option value="20" ${alarmSettings.duracion === 20 ? 'selected' : ''}>20 segundos</option>
+            <option value="0" ${alarmSettings.duracion === 0 ? 'selected' : ''}>Hasta que la detenga</option>
+          </select>
+        </div>
+      </div>
+
       <div class="reminder-actions">
         <button type="button" class="btn btn-outline btn-sm" id="${prefix}-test">▶ Probar sonido</button>
         <label class="btn btn-outline btn-sm" for="${prefix}-upload" style="margin:0;display:inline-flex;align-items:center;gap:6px">
@@ -4021,11 +4294,37 @@ function updateReminderFieldsFrom(prefix, values) {
   soundEl.value = values.reminderSound || 'timbre';
 }
 
-/** Conecta "Probar sonido" + "Subir audio" de un bloque de avisos */
+/** Conecta "Probar sonido" + "Subir audio" + volumen/duración de un bloque */
 function bindReminderControls(prefix) {
   const testBtn = document.getElementById(`${prefix}-test`);
   const uploadInput = document.getElementById(`${prefix}-upload`);
   const soundSel = document.getElementById(`${prefix}-sound`);
+  const volInput = document.getElementById(`${prefix}-vol`);
+  const durSelect = document.getElementById(`${prefix}-dur`);
+  const volLabel = document.getElementById(`${prefix}-vol-label`);
+
+  // Volumen global de la alarma (0–100 → 0–1). Se guarda en localStorage.
+  if (volInput && volLabel) {
+    const renderVolLabel = () => {
+      const pct = Number(volInput.value) || 0;
+      volLabel.textContent = pct === 0 ? 'apagado' : `${pct}%`;
+      volInput.setAttribute('aria-valuenow', String(pct));
+    };
+    renderVolLabel();
+    volInput.addEventListener('input', () => {
+      alarmSettings.volume = (Number(volInput.value) || 0) / 100;
+      saveAlarmSettings();
+      renderVolLabel();
+    });
+  }
+
+  // Duración global de la alarma (10s / 20s / hasta que la detenga)
+  if (durSelect) {
+    durSelect.addEventListener('change', () => {
+      alarmSettings.duracion = Number(durSelect.value) || 10;
+      saveAlarmSettings();
+    });
+  }
 
   if (testBtn) {
     testBtn.addEventListener('click', () => {
@@ -4033,6 +4332,7 @@ function bindReminderControls(prefix) {
       const key = soundSel ? soundSel.value : 'timbre';
       const custom = resolveCustomSound(key);
       playSoundByKey(key, custom && custom.dataUrl);
+      if (navigator.vibrate) navigator.vibrate([150, 60, 150]);
     });
   }
 
@@ -4140,6 +4440,14 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     // Cerrar sidebar si está abierto
     if (typeof window._closeSidebar === 'function') window._closeSidebar();
+    const current = window.location.hash || '#/';
+    if (current === href) {
+      // Ya estamos en esa ruta: el hash no cambia y no salta "hashchange",
+      // así que re-renderizamos manualmente la vista (permite agendar varias
+      // citas seguidas, recargar listas, etc. sin refrescar la página).
+      router();
+      return;
+    }
     window.location.hash = href;
   }
 });
@@ -4153,6 +4461,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // forma autoritativa); los rechazos se ignoran aquí.
   Promise.allSettled([loadAppointments(), loadTasks(), loadContacts()]);
   loadCustomSounds();
+  loadAlarmSettings();
   // Desbloquear el audio en el primer toque/tecla (clave para iOS/Android)
   unlockAudioOnGesture();
   // Iniciar la alarma ANTES que cualquier render, para que no quede sin
