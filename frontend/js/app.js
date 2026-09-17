@@ -496,6 +496,10 @@ function defaultAppointmentForm() {
 /** Formulario temporal para agendamiento en Mi Agenda */
 let appointmentForm = defaultAppointmentForm();
 
+/** Datos precargados para "Agendar de nuevo" desde Mi Historial o Mi Directorio.
+ *  Se consume (se deja en null) la primera vez que se renderiza Mi Agenda. */
+let pendingAppointmentPrefill = null;
+
 /** Reinicia el formulario de cita a sus valores iniciales. */
 function resetAppointmentForm() {
   appointmentForm = defaultAppointmentForm();
@@ -1353,13 +1357,364 @@ async function renderTerapeutaAgenda(el) {
 }
 
 /* =====================================================================
+   9.0 REUTILIZACIÓN DE USUARIOS: BÚSQUEDA, AUTORRELLENO Y "AGENDAR DE NUEVO"
+   Permite volver a agendar para un tutor/paciente ya registrado (Mi
+   Directorio o citas previas del Historial) sin llenar el formulario
+   completo: solo fecha, hora, motivo y modalidad.
+   ===================================================================== */
+
+/** Extrae nombre y edad del paciente desde el texto del Directorio,
+ *  p.ej. "Lucas Morales (7 años)" → { pacienteNombre: 'Lucas Morales', pacienteEdad: '7' }. */
+function parseContactPaciente(str) {
+  const val = String(str || '').trim();
+  if (!val) return { pacienteNombre: '', pacienteEdad: '' };
+  const m = val.match(/^(.*?)\s*\((\d{1,3})\s*años?\)\s*$/i);
+  if (m) return { pacienteNombre: m[1].trim(), pacienteEdad: m[2] };
+  return { pacienteNombre: val, pacienteEdad: '' };
+}
+
+/** Última cita (por fecha/hora) de un contacto del Directorio. */
+function lastAppointmentForContact(contact) {
+  const phone = String(contact.telefono || '').trim();
+  const email = String(contact.email || '').toLowerCase();
+  return [...state.appointments]
+    .filter(a =>
+      String(a.telefono || '').trim() === phone ||
+      (a.email && email && String(a.email).toLowerCase() === email)
+    )
+    .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) ||
+                      String(b.hora || '').localeCompare(String(a.hora || '')))[0] || null;
+}
+
+/** Índice unificado de usuarios conocidos (citas del Historial + contactos
+ *  del Directorio). Se deduplican por tutor+paciente+contacto para no mostrar
+ *  vueltas de la misma persona como sugerencias repetidas. */
+function buildPatientSearchIndex() {
+  const byKey = new Map();
+  const keyOf = (r) => [
+    String(r.tutorNombre || '').toLowerCase().trim(),
+    String(r.pacienteNombre || '').toLowerCase().trim(),
+    String(r.telefono || '').trim(),
+    String(r.email || '').toLowerCase().trim()
+  ].join('|');
+
+  const add = (rec) => {
+    const k = keyOf(rec);
+    const existing = byKey.get(k);
+    if (!existing) { byKey.set(k, rec); return; }
+    // Preferir la entrada más reciente (y que aporte profesional asignado)
+    const cmp = String(rec.fecha || '').localeCompare(String(existing.fecha || ''));
+    if (cmp > 0 || (cmp === 0 && rec.professionalName && !existing.professionalName)) {
+      byKey.set(k, Object.assign({}, existing, rec));
+    }
+  };
+
+  [...state.appointments]
+    .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) ||
+                      String(b.hora || '').localeCompare(String(a.hora || '')))
+    .forEach(a => add({
+      key: 'appt:' + a.id,
+      source: 'Historial',
+      tutorNombre: a.tutorNombre || '',
+      pacienteNombre: a.pacienteNombre || '',
+      pacienteEdad: a.pacienteEdad,
+      telefono: a.telefono || '',
+      email: a.email || '',
+      professionalId: a.professionalId,
+      professionalName: a.professionalName || '',
+      modalidad: a.modalidad,
+      motivo: a.motivo,
+      fecha: a.fecha,
+      hora: a.hora
+    }));
+
+  state.contacts.forEach(c => {
+    const parsed = parseContactPaciente(c.paciente);
+    add({
+      key: 'contact:' + c.id,
+      source: 'Directorio',
+      tutorNombre: c.nombre || '',
+      pacienteNombre: parsed.pacienteNombre,
+      pacienteEdad: parsed.pacienteEdad,
+      telefono: c.telefono || '',
+      email: c.email || '',
+      professionalId: null,
+      professionalName: '',
+      modalidad: '',
+      motivo: '',
+      fecha: '',
+      hora: ''
+    });
+  });
+
+  return Array.from(byKey.values());
+}
+
+/** Sugerencias que coinciden con la consulta (nombre tuto/paciente, teléfono o correo). */
+function getPatientSearchMatches(query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const digits = q.replace(/\D/g, '');
+  return buildPatientSearchIndex().filter(r =>
+    r.tutorNombre.toLowerCase().includes(q) ||
+    r.pacienteNombre.toLowerCase().includes(q) ||
+    (digits && String(r.telefono || '').replace(/\D/g, '').includes(digits)) ||
+    r.email.toLowerCase().includes(q)
+  ).slice(0, 8);
+}
+
+/** Copia los datos de un usuario encontrado al formulario de cita. */
+function applyPatientToForm(rec) {
+  appointmentForm.tutorNombre = rec.tutorNombre || '';
+  appointmentForm.pacienteNombre = rec.pacienteNombre || '';
+  appointmentForm.pacienteEdad = (rec.pacienteEdad !== null && rec.pacienteEdad !== undefined)
+    ? String(rec.pacienteEdad) : '';
+  appointmentForm.telefono = rec.telefono || '';
+  appointmentForm.email = rec.email || '';
+  if (rec.professionalId) appointmentForm.professionalId = parseInt(rec.professionalId, 10) || null;
+  if (rec.modalidad) appointmentForm.modalidad = rec.modalidad;
+  if (rec.motivo) appointmentForm.motivo = rec.motivo;
+}
+
+/** Aplica el prefill pendiente (botón "Agendar de nuevo") al formulario. */
+function applyAppointmentPrefill() {
+  if (!pendingAppointmentPrefill) return false;
+  const p = pendingAppointmentPrefill;
+  pendingAppointmentPrefill = null;
+  if (p.professionalId) appointmentForm.professionalId = parseInt(p.professionalId, 10) || null;
+  appointmentForm.tutorNombre = p.tutorNombre || '';
+  appointmentForm.pacienteNombre = p.pacienteNombre || '';
+  appointmentForm.pacienteEdad = (p.pacienteEdad !== null && p.pacienteEdad !== undefined)
+    ? String(p.pacienteEdad) : '';
+  appointmentForm.telefono = p.telefono || '';
+  appointmentForm.email = p.email || '';
+  if (p.modalidad) appointmentForm.modalidad = p.modalidad;
+  if (p.motivo) appointmentForm.motivo = p.motivo;
+  return true;
+}
+
+/** Prepara el salto a Mi Agenda con los datos del usuario ya cargados. */
+function startRebook(prefill) {
+  pendingAppointmentPrefill = Object.assign({}, prefill);
+  const target = '#/agendar';
+  if ((window.location.hash || '#/') === target) {
+    if (typeof router === 'function') router();
+  } else {
+    window.location.hash = target;
+  }
+}
+
+/** HTML del panel de búsqueda de usuarios ya registrados. */
+function patientSearchHTML(prefilled) {
+  const loadedName = prefilled ? (appointmentForm.tutorNombre || appointmentForm.pacienteNombre || '') : '';
+  const loadedInfo = prefilled
+    ? `· Paciente <strong>${escapeHtml(appointmentForm.pacienteNombre || '—')}</strong> · Tutor <strong>${escapeHtml(appointmentForm.tutorNombre || '—')}</strong>`
+    : '';
+  return `
+    <div class="patient-search-card" role="search" aria-label="Buscar un usuario ya registrado">
+      <div class="patient-search-header">
+        <h3>🔁 ¿Ya has agendado antes para este usuario?</h3>
+        <p>Escribe el nombre del tutor o del paciente, su teléfono o su correo. Si aparece, sus datos se llenarán solos y solo tendrás que elegir fecha, hora, motivo y modalidad.</p>
+      </div>
+      <div class="patient-search-options-wrap">
+        <div class="patient-search-row">
+          <input type="search" id="patient-search-input"
+                 placeholder="Nombre del tutor, paciente, teléfono o correo..."
+                 autocomplete="off"
+                 role="combobox" aria-expanded="false"
+                 aria-autocomplete="list"
+                 aria-controls="patient-search-suggestions"
+                 aria-label="Buscar paciente o tutor ya registrado"
+                 value="${escapeHtml(loadedName)}">
+          <button type="button" id="patient-search-clear" class="btn btn-sm btn-outline" aria-label="Limpiar la búsqueda de usuario" style="flex-shrink:0">✕ Limpiar</button>
+        </div>
+        <ul id="patient-search-suggestions" class="patient-search-suggestions" role="listbox"
+            aria-label="Sugerencias de usuarios registrados" hidden></ul>
+      </div>
+      <div id="patient-search-status" role="status" aria-live="polite">
+        ${prefilled ? `
+          <div class="patient-search-found">
+            ✅ <strong>Usuario encontrado.</strong> Datos cargados automáticamente. ${loadedInfo}
+            <button type="button" id="patient-search-reset" class="btn-link-edit" style="margin-left:4px">Cambiar</button>
+          </div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+/** Mensaje "Usuario encontrado" tras seleccionar o precargar un usuario. */
+function showPatientFoundStatus(host) {
+  const status = host.querySelector('#patient-search-status');
+  if (!status) return;
+  const loadedInfo = `· Paciente <strong>${escapeHtml(appointmentForm.pacienteNombre || '—')}</strong> · Tutor <strong>${escapeHtml(appointmentForm.tutorNombre || '—')}</strong>`;
+  status.innerHTML = `
+    <div class="patient-search-found">
+      ✅ <strong>Usuario encontrado.</strong> Datos cargados automáticamente. ${loadedInfo}
+      <button type="button" id="patient-search-reset" class="btn-link-edit" style="margin-left:4px">Cambiar</button>
+    </div>`;
+  const resetBtn = status.querySelector('#patient-search-reset');
+  if (resetBtn) resetBtn.addEventListener('click', clearPatientSearchState);
+}
+
+/** Vuelve al flujo de "usuario nuevo" y limpia los datos cargados. */
+function clearPatientSearchState() {
+  appointmentForm.tutorNombre = '';
+  appointmentForm.pacienteNombre = '';
+  appointmentForm.pacienteEdad = '';
+  appointmentForm.telefono = '';
+  appointmentForm.email = '';
+  appointmentForm.professionalId = null;
+  appointmentForm.motivo = '';
+  appointmentForm.motivoDetalle = '';
+  appointmentForm.modalidad = 'presencial';
+  const input = document.getElementById('patient-search-input');
+  if (input) { input.value = ''; input.removeAttribute('aria-activedescendant'); }
+  const list = document.getElementById('patient-search-suggestions');
+  if (list) list.hidden = true;
+  const status = document.getElementById('patient-search-status');
+  if (status) status.innerHTML = '';
+  showToast('Búsqueda de usuario limpiada. Puedes registrarlo como nuevo.', 'info');
+}
+
+/** Conecta la búsqueda con autocompletado (accesible por teclado). */
+function bindPatientSearch(el, prefilled) {
+  const input = el.querySelector('#patient-search-input');
+  const list = el.querySelector('#patient-search-suggestions');
+  const status = el.querySelector('#patient-search-status');
+  const clearBtn = el.querySelector('#patient-search-clear');
+  const resetBtn = el.querySelector('#patient-search-reset');
+
+  // Precarga desde "Agendar de nuevo" (Historial / Directorio)
+  if (prefilled && resetBtn) resetBtn.addEventListener('click', clearPatientSearchState);
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (input) input.value = '';
+      if (status) status.innerHTML = '';
+      if (list) list.hidden = true;
+      if (input) input.focus();
+    });
+  }
+
+  let items = [];
+  let activeIndex = -1;
+
+  const hideList = () => {
+    if (list) list.hidden = true;
+    if (input) { input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+    activeIndex = -1;
+  };
+
+  const renderSuggestions = (matches) => {
+    items = matches.slice(0, 8);
+    activeIndex = -1;
+    if (!list || !items.length) { hideList(); return; }
+    list.innerHTML = items.map((r, i) => `
+      <li id="ps-item-${i}" class="patient-search-option" role="option" aria-selected="false" data-index="${i}" tabindex="-1">
+        <div class="ps-option-main">
+          <span class="ps-option-name">${escapeHtml(r.pacienteNombre || r.tutorNombre)}</span>
+          <span class="ps-option-source">${r.source === 'Historial' ? '📜 Historial' : '👥 Directorio'}</span>
+        </div>
+        <div class="ps-option-sub">
+          ${r.pacienteNombre ? `🧒 ${escapeHtml(r.pacienteNombre)}${r.pacienteEdad ? ` (${escapeHtml(r.pacienteEdad)} años)` : ''}` : ''}
+          ${r.tutorNombre ? `· 👤 ${escapeHtml(r.tutorNombre)}` : ''}
+          ${r.telefono ? `· 📱 ${escapeHtml(r.telefono)}` : ''}
+          ${r.email ? `· ✉️ ${escapeHtml(r.email)}` : ''}
+        </div>
+      </li>`).join('');
+    list.hidden = false;
+    if (input) input.setAttribute('aria-expanded', 'true');
+    Array.from(list.children).forEach((opt, i) => {
+      opt.addEventListener('mouseenter', () => {
+        activeIndex = i;
+        list.querySelectorAll('.patient-search-option').forEach((o, j) => {
+          o.classList.toggle('active', j === i);
+          o.setAttribute('aria-selected', String(j === i));
+        });
+      });
+      opt.addEventListener('click', () => selectSuggestion(parseInt(opt.dataset.index, 10)));
+    });
+  };
+
+  const selectSuggestion = (i) => {
+    const rec = items[i];
+    if (!rec) return;
+    applyPatientToForm(rec);
+    if (input) input.value = rec.tutorNombre || rec.pacienteNombre || '';
+    hideList();
+    showPatientFoundStatus(el);
+    showToast('✓ Usuario encontrado. Datos cargados automáticamente.', 'success');
+    // Si aún estamos en el paso 1 y hay profesional asignado, avanzar a Fecha/Hora
+    if (appointmentForm.step === 1 && appointmentForm.professionalId) {
+      renderAppointmentStep2();
+    } else if (appointmentForm.step === 1 && !appointmentForm.professionalId) {
+      const st = el.querySelector('#patient-search-status');
+      if (st) {
+        const msg = document.createElement('div');
+        msg.textContent = 'ℹ️ Datos cargados. Ahora selecciona el profesional en el paso 1 para continuar.';
+        msg.style.cssText = 'margin-top:8px;font-size:0.82rem;color:var(--teal-darker);font-weight:600';
+        st.appendChild(msg);
+      }
+    }
+  };
+
+  if (input) {
+    input.addEventListener('input', () => {
+      const q = input.value;
+      if (q.trim().length < 2) { hideList(); return; }
+      renderSuggestions(getPatientSearchMatches(q));
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!list || list.hidden || !items.length) return;
+        e.preventDefault();
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        activeIndex = Math.min(Math.max(activeIndex + delta, 0), items.length - 1);
+        list.querySelectorAll('.patient-search-option').forEach((o, j) => {
+          o.classList.toggle('active', j === activeIndex);
+          o.setAttribute('aria-selected', String(j === activeIndex));
+        });
+        if (input) input.setAttribute('aria-activedescendant', 'ps-item-' + activeIndex);
+        return;
+      }
+      if (e.key === 'Enter') {
+        if (list && !list.hidden && activeIndex >= 0) {
+          e.preventDefault();
+          selectSuggestion(activeIndex);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        hideList();
+        return;
+      }
+      if (e.key === 'Tab' && list && !list.hidden) {
+        if (activeIndex >= 0) { selectSuggestion(activeIndex); return; }
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      // Retraso corto para permitir hacer clic en una sugerencia
+      setTimeout(hideList, 160);
+    });
+  }
+}
+
+/* =====================================================================
    9. VISTA 2: MI AGENDA (SINCRONIZACIÓN DIRECTA CON MI DIRECTORIO)
    ===================================================================== */
 async function renderAppointment(el) {
   // Formulario en blanco cada vez que se abre Mi Agenda (o tras agendar).
   resetAppointmentForm();
 
-  const dataError = await catchLoad(() => loadAppointments());
+  // Si se llegó desde "Agendar de nuevo" (Historial / Directorio), precargar
+  // los datos del usuario registrado para no volver a llenar el formulario.
+  const appliedPrefill = applyAppointmentPrefill();
+
+  // Se cargan también los contactos del Directorio para alimentar el buscador
+  // de usuarios ya registrados en el formulario.
+  const dataError = await catchLoad(() => loadAllData());
   const todayStr = new Date().toISOString().split('T')[0];
   const upcoming = state.appointments
     .filter(a => a.fecha >= todayStr && a.estado !== 'cancelada')
@@ -1401,6 +1756,9 @@ async function renderAppointment(el) {
       </section>
 
       <div class="appointment-form" id="appointment-form" role="region" aria-label="Formulario de agendamiento">
+        <!-- Búsqueda de usuarios ya registrados (reagendar sin repetir el formulario) -->
+        ${patientSearchHTML(appliedPrefill)}
+
         <!-- Stepper -->
         <nav aria-label="Progreso de Mi Agenda" role="navigation">
           <div class="steps" id="steps" role="list">
@@ -1452,7 +1810,16 @@ async function renderAppointment(el) {
     });
   });
 
-  renderAppointmentStep1();
+  // Búsqueda de usuarios ya registrados (autocompletado)
+  bindPatientSearch(el, appliedPrefill);
+
+  // Si hay profesional asignado precargado, ir directo a elegir Fecha/Hora;
+  // solo queda completar los campos variables (fecha, hora, motivo y modalidad).
+  if (appliedPrefill && appointmentForm.professionalId) {
+    renderAppointmentStep2();
+  } else {
+    renderAppointmentStep1();
+  }
 }
 
 /** Modal para reagendar una cita existente (edita datos, fecha y hora) */
@@ -3261,6 +3628,7 @@ async function renderHistory(el) {
                        ${a.motivoDetalle ? `<div style="font-size:0.82rem;color:var(--gray);background:var(--warm-white);padding:8px;border-radius:var(--radius-xs);margin-top:6px"><em>${escapeHtml(a.motivoDetalle)}</em></div>` : ''}
                        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
                          <button class="btn btn-sm btn-outline" data-action="view-app" data-id="${escapeHtml(a.id)}">Ver Detalle Completo</button>
+                         <button class="btn btn-sm btn-outline" data-action="rebook-app" data-id="${escapeHtml(a.id)}">🔁 Agendar de nuevo</button>
                          <button class="btn btn-sm btn-secondary" data-action="toggle-status" data-id="${escapeHtml(a.id)}">
                            ${a.estado === 'atendida' ? 'Marcar Confirmada' : 'Marcar Atendida ✓'}
                          </button>
@@ -3372,6 +3740,24 @@ async function renderHistory(el) {
           `,
           `<button class="btn btn-primary btn-sm" onclick="closeModal()">Cerrar</button>`
         );
+      });
+    });
+
+    document.querySelectorAll('[data-action="rebook-app"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const a = state.appointments.find(item => item.id === id);
+        if (!a) return;
+        startRebook({
+          tutorNombre: a.tutorNombre,
+          pacienteNombre: a.pacienteNombre,
+          pacienteEdad: a.pacienteEdad,
+          telefono: a.telefono,
+          email: a.email || '',
+          professionalId: a.professionalId,
+          modalidad: a.modalidad,
+          motivo: a.motivo
+        });
       });
     });
 
@@ -3546,6 +3932,9 @@ async function renderDirectory(el) {
                class="btn btn-sm btn-outline" style="flex:1;text-align:center" aria-label="WhatsApp a ${escapeHtml(c.nombre)}">
               💬 WhatsApp
             </a>
+            <button class="btn btn-sm btn-outline" data-action="rebook-contact" data-id="${escapeHtml(c.id)}" aria-label="Agendar de nuevo una cita para ${escapeHtml(c.nombre)}">
+              🔁 Agendar de nuevo
+            </button>
             <button class="btn btn-sm btn-secondary" data-action="edit-contact" data-id="${escapeHtml(c.id)}" aria-label="Editar contacto">
               ✏️ Editar
             </button>
@@ -3740,6 +4129,26 @@ async function renderDirectory(el) {
           }
           refreshGrid();
         }
+      });
+    });
+
+    document.querySelectorAll('[data-action="rebook-contact"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const c = state.contacts.find(item => item.id === id);
+        if (!c) return;
+        const parsed = parseContactPaciente(c.paciente);
+        const lastAppt = lastAppointmentForContact(c);
+        startRebook({
+          tutorNombre: c.nombre,
+          pacienteNombre: parsed.pacienteNombre,
+          pacienteEdad: parsed.pacienteEdad,
+          telefono: c.telefono,
+          email: c.email || '',
+          professionalId: lastAppt ? lastAppt.professionalId : null,
+          modalidad: lastAppt ? lastAppt.modalidad : '',
+          motivo: lastAppt ? lastAppt.motivo : ''
+        });
       });
     });
 

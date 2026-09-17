@@ -3018,3 +3018,134 @@ a.contact-item:hover { color: var(--teal); }
   75%      { transform: rotate(12deg); }
 }
 
+/* =====================================================================
+   36. BÚSQUEDA DE USUARIOS PARA REAGENDAR (REUTILIZACIÓN DE DATOS)
+   Panel de autocompletado del formulario "Agendar Cita" para no volver a
+   llenar los datos completos de un paciente/tutor ya registrado.
+   ===================================================================== */
+.patient-search-card {
+  background: var(--white);
+  border: 1.5px solid var(--teal-light);
+  border-left: 5px solid var(--teal);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  margin-bottom: 28px;
+  box-shadow: var(--shadow-card);
+}
+
+.patient-search-header h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--dark);
+  margin-bottom: 4px;
+}
+
+.patient-search-header p {
+  font-size: 0.85rem;
+  color: var(--gray);
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+
+.patient-search-options-wrap {
+  position: relative;
+}
+
+.patient-search-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.patient-search-row input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.patient-search-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 60;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--white);
+  border: 1px solid var(--gray-lighter);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.patient-search-option {
+  padding: 11px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--gray-lighter);
+}
+
+.patient-search-option:last-child {
+  border-bottom: none;
+}
+
+.patient-search-option:hover,
+.patient-search-option.active {
+  background: var(--teal-lighter);
+}
+
+.ps-option-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--dark);
+}
+
+.ps-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-option-source {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--teal-light);
+  color: var(--teal-darker);
+}
+
+.ps-option-sub {
+  font-size: 0.78rem;
+  color: var(--gray);
+  margin-top: 3px;
+}
+
+.patient-search-found {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--teal-lighter);
+  border: 1px solid var(--teal-light);
+  color: var(--teal-darker);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.patient-search-found strong {
+  color: var(--teal-darker);
+}
+
