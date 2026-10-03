@@ -34,6 +34,25 @@ const Cita = {
     return result.rows[0];
   },
 
+  // Buscar un DUPLICADO EXACTO: mismo paciente + misma fecha + misma hora.
+  // Dos pacientes DISTINTOS sí pueden compartir la misma hora (eso se permite),
+  // por eso aquí no se compara el profesional ni el resto de campos.
+  // excludeId permite ignorar la propia cita al actualizar (reagendar).
+  findExactDuplicate: async (userId, fecha, hora, pacienteNombre, excludeId = null) => {
+    const params = [userId, fecha, hora, pacienteNombre || ''];
+    let sql =
+      'SELECT * FROM citas WHERE user_id = ? AND fecha = ? AND hora = ? ' +
+      'AND LOWER(TRIM(paciente_nombre)) = LOWER(TRIM(?)) ' +
+      "AND (estado IS NULL OR estado <> 'cancelada')";
+    if (excludeId !== null && excludeId !== undefined && excludeId !== '') {
+      sql += ' AND id <> ?';
+      params.push(excludeId);
+    }
+    sql += ' LIMIT 1';
+    const result = await pool.query(sql, params);
+    return result.rows[0] || null;
+  },
+
   // Crear una cita (userId se asigna del token, nunca del cuerpo)
   create: async (userId, data) => {
     const insert = await pool.query(

@@ -829,6 +829,38 @@ function getBookedSlots(dateStr) {
     .map(a => a.hora);
 }
 
+/** Nº de citas activas en un bloque horario (0 = libre). Permite compartir
+ *  hora entre varios pacientes, así que solo sirve para informar. */
+function countSlot(dateStr, hora, excludeId = null) {
+  if (!dateStr || !hora) return 0;
+  return state.appointments.filter(a =>
+    a.fecha === dateStr &&
+    a.hora === hora &&
+    a.estado !== 'cancelada' &&
+    String(a.id) !== String(excludeId)
+  ).length;
+}
+
+/** Normaliza el nombre del paciente para comparar sin tildes de formato,
+ *  espacios sobrantes ni mayúsculas/minúsculas. */
+function normalizePatientName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Duplicado EXACTO: mismo paciente + misma fecha + misma hora.
+ *  Compartir hora con otro paciente NO es duplicado y devuelve false. */
+function hasExactDuplicate({ fecha, hora, pacienteNombre, excludeId = null }) {
+  const target = normalizePatientName(pacienteNombre);
+  if (!fecha || !hora || !target) return false;
+  return state.appointments.some(a =>
+    a.fecha === fecha &&
+    a.hora === hora &&
+    a.estado !== 'cancelada' &&
+    String(a.id) !== String(excludeId) &&
+    normalizePatientName(a.pacienteNombre) === target
+  );
+}
+
 function getProfessional(id) {
   return PROFESSIONALS.find(p => p.id === parseInt(id));
 }
@@ -1720,23 +1752,37 @@ async function renderAppointment(el) {
     .filter(a => a.fecha >= todayStr && a.estado !== 'cancelada')
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora));
 
+  // Las citas del mismo bloque horario se listan una debajo de otra y se
+  // rotulan con un indicador "N citas" para dejar claro que el horario es
+  // compartido por más de un paciente.
+  const slotTotals = {};
+  upcoming.forEach(a => {
+    const key = `${a.fecha} ${a.hora}`;
+    slotTotals[key] = (slotTotals[key] || 0) + 1;
+  });
+
   const upcomingHtml = upcoming.length === 0
     ? `<p style="color:var(--gray-light);font-size:0.88rem;text-align:center;padding:14px 0 4px">
          Aún no tienes citas programadas. Agenda tu primera cita 👇
        </p>`
     : `<ul class="appt-manage-list" role="list">
-         ${upcoming.map(a => `
-           <li class="appt-manage-item" role="listitem">
-             <div class="appt-manage-info">
-               <strong>${formatDateShort(a.fecha)} · ${escapeHtml(a.hora)}</strong>
-               <span>🧒 ${escapeHtml(a.pacienteNombre)} — ${escapeHtml(a.professionalName)}</span>
-             </div>
-             <div class="appt-manage-actions">
-               <button type="button" class="btn btn-sm btn-outline" data-action="reschedule" data-id="${escapeHtml(a.id)}">🕑 Reagendar</button>
-               <button type="button" class="btn btn-sm" style="color:var(--danger);background:var(--danger-bg)" data-action="cancel-appt" data-id="${escapeHtml(a.id)}">✕ Cancelar</button>
-             </div>
-           </li>
-         `).join('')}
+         ${upcoming.map(a => {
+           const shared = slotTotals[`${a.fecha} ${a.hora}`] > 1;
+           return `
+            <li class="appt-manage-item" role="listitem">
+              <div class="appt-manage-info">
+                <strong>
+                  ${formatDateShort(a.fecha)} · ${escapeHtml(a.hora)}
+                  ${shared ? `<span class="appt-slot-badge">👥 ${slotTotals[`${a.fecha} ${a.hora}`]} citas a esta hora</span>` : ''}
+                </strong>
+                <span>🧒 ${escapeHtml(a.pacienteNombre)} — ${escapeHtml(a.professionalName)}</span>
+              </div>
+              <div class="appt-manage-actions">
+                <button type="button" class="btn btn-sm btn-outline" data-action="reschedule" data-id="${escapeHtml(a.id)}">🕑 Reagendar</button>
+                <button type="button" class="btn btn-sm" style="color:var(--danger);background:var(--danger-bg)" data-action="cancel-appt" data-id="${escapeHtml(a.id)}">✕ Cancelar</button>
+              </div>
+            </li>`;
+         }).join('')}
        </ul>`;
 
   el.innerHTML = `
@@ -1834,10 +1880,15 @@ function openRescheduleAppointmentModal(appointment, onDone) {
     </select>`;
   };
 
+  // Las horas con citas NO se deshabilitan: se pueden elegir para mover la
+  // cita a un bloque compartido. El único bloqueo sigue siendo el duplicado
+  // exacto (mismo paciente + misma fecha + misma hora).
   const renderTimeOptions = (dateStr) => {
-    const booked = getBookedSlots(dateStr).filter(s => s !== appointment.hora);
     return `<select id="rs-time" aria-label="Nueva hora">
-      ${TIME_SLOTS.map(t => `<option value="${t}" ${t === appointment.hora ? 'selected' : ''} ${booked.includes(t) ? 'disabled' : ''}>${t}${booked.includes(t) ? ' (ocupado)' : ''}</option>`).join('')}
+      ${TIME_SLOTS.map(t => {
+        const n = countSlot(dateStr, t, appointment.id);
+        return `<option value="${t}" ${t === appointment.hora ? 'selected' : ''}>${t}${n ? ` (${n} cita${n > 1 ? 's' : ''} a esta hora)` : ''}</option>`;
+      }).join('')}
     </select>`;
   };
 
@@ -1910,18 +1961,55 @@ function openRescheduleAppointmentModal(appointment, onDone) {
 
   document.getElementById('rs-date').addEventListener('change', (e) => {
     const day = e.target.value;
-    const booked = getBookedSlots(day).filter(s => s !== appointment.hora);
+    const keepTime = appointment.hora;
     document.getElementById('rs-time-wrap').innerHTML = `
       <label for="rs-time">🕐 Hora</label>
       <select id="rs-time">
-        ${TIME_SLOTS.map(t => `<option value="${t}" ${booked.includes(t) ? 'disabled' : ''}>${t}${booked.includes(t) ? ' (ocupado)' : ''}</option>`).join('')}
-      </select>`;
+        ${TIME_SLOTS.map(t => {
+          const n = countSlot(day, t, appointment.id);
+          return `<option value="${t}" ${t === keepTime ? 'selected' : ''}>${t}${n ? ` (${n} cita${n > 1 ? 's' : ''} a esta hora)` : ''}</option>`;
+        }).join('')}
+      </select>
+      <p class="slot-warning" id="rs-slot-warning" role="status" aria-live="polite" hidden></p>`;
+
+    const rsTime = document.getElementById('rs-time');
+    const updateWarning = () => {
+      const box = document.getElementById('rs-slot-warning');
+      if (!box) return;
+      const n = countSlot(day, rsTime.value, appointment.id);
+      if (!n) { box.hidden = true; box.textContent = ''; return; }
+      box.hidden = false;
+      box.textContent = n > 1
+        ? `⚠️ Ya existen ${n} citas a esta hora (${rsTime.value}). Puedes reagendar igualmente.`
+        : `⚠️ Ya existe otra cita a esta hora (${rsTime.value}). Puedes reagendar igualmente.`;
+    };
+    rsTime.addEventListener('change', updateWarning);
+    updateWarning();
   });
 
   document.getElementById('btn-save-reschedule').addEventListener('click', async () => {
     const newDate = document.getElementById('rs-date').value;
     const newTime = document.getElementById('rs-time').value;
     if (!newDate || !newTime) return;
+
+    // Compartir bloque con otra cita se permite (aviso informativo).
+    const sharedCount = countSlot(newDate, newTime, appointment.id);
+    if (sharedCount > 0) {
+      showToast(`⚠️ Ya existe${sharedCount > 1 ? `n ${sharedCount} citas` : ' otra cita'} a esta hora. Se guardará igualmente.`, 'warning');
+    }
+
+    // Duplicado exacto: bloquea antes de tocar el objeto appointment, así no
+    // hace falta revertir nada.
+    const rsPatient = document.getElementById('rs-paciente-nombre').value.trim();
+    if (hasExactDuplicate({
+      fecha: newDate,
+      hora: newTime,
+      pacienteNombre: rsPatient,
+      excludeId: appointment.id
+    })) {
+      showToast('⚠️ Este paciente ya tiene una cita en esa fecha y hora. Elige otra hora o fecha.', 'error');
+      return;
+    }
 
     const prevState = {
       fecha: appointment.fecha,
@@ -2240,7 +2328,24 @@ function renderApptDatePanel() {
   bindDates(host);
 }
 
-/** Dibuja los horarios disponibles para una fecha dada */
+/** Aviso suave (NO bloqueante) al elegir una hora que ya tiene citas */
+function renderSlotWarning(hora, n) {
+  const box = document.getElementById('slot-warning');
+  if (!box) return;
+  if (!n) {
+    box.hidden = true;
+    box.textContent = '';
+    return;
+  }
+  box.hidden = false;
+  box.textContent = n > 1
+    ? `⚠️ Ya existen ${n} citas a esta hora (${hora}). Puedes agendar igualmente.`
+    : `⚠️ Ya existe otra cita a esta hora (${hora}). Puedes agendar igualmente.`;
+}
+
+/** Dibuja los horarios disponibles para una fecha dada.
+ *  Un horario con citas NO se bloquea: varios pacientes pueden compartir la
+ *  misma hora, así que se puede seleccionar y solo se muestra un aviso. */
 function renderApptTimePanel(dateStr) {
   const timePanel = document.getElementById('time-panel');
   if (!timePanel) return;
@@ -2248,31 +2353,40 @@ function renderApptTimePanel(dateStr) {
     timePanel.innerHTML = `<p class="time-placeholder">👆 Selecciona una fecha para ver los horarios disponibles</p>`;
     return;
   }
-  const booked = getBookedSlots(dateStr);
+  const current = appointmentForm.time;
   timePanel.innerHTML = `
     <div class="time-grid" id="time-grid" role="listbox" aria-label="Horarios disponibles">
       ${TIME_SLOTS.map(t => {
-        const isBooked = booked.includes(t);
-        const selected = appointmentForm.time === t;
+        const n = countSlot(dateStr, t);
+        const isBooked = n > 0;
+        const isSelected = current === t;
+        const label = isBooked
+          ? `${t} – ${n} cita${n > 1 ? 's' : ''} a esta hora, se puede agendar otra`
+          : `${t} – Disponible`;
         return `
-          <button type="button" class="time-btn ${selected ? 'selected' : ''}" data-time="${t}"
-                  ${isBooked ? 'disabled aria-disabled="true"' : ''}
-                  role="option" aria-selected="${selected}"
-                  aria-label="${t}${isBooked ? ' – Ocupado' : ' – Disponible'}">
-            ${t}${isBooked ? ' ⛔' : ''}
+          <button type="button" class="time-btn${isBooked ? ' booked' : ''}${isSelected ? ' selected' : ''}"
+                  data-time="${t}" data-booked="${n}"
+                  role="option" aria-selected="${isSelected}"
+                  aria-label="${label}">
+            <span class="time-btn-hour">${t}</span>
+            ${isBooked ? `<span class="slot-badge" aria-hidden="true">${n}</span>` : ''}
           </button>`;
       }).join('')}
-    </div>`;
+    </div>
+    <p class="slot-warning" id="slot-warning" role="status" aria-live="polite" hidden></p>`;
 
-  timePanel.querySelectorAll('.time-btn:not(:disabled)').forEach(btn => {
+  timePanel.querySelectorAll('.time-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       timePanel.querySelectorAll('.time-btn').forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-selected', 'false'); });
       btn.classList.add('selected');
       btn.setAttribute('aria-selected', 'true');
       appointmentForm.time = btn.dataset.time;
       document.getElementById('btn-step-next').disabled = false;
+      renderSlotWarning(btn.dataset.time, Number(btn.dataset.booked) || 0);
     });
   });
+
+  if (current) renderSlotWarning(current, countSlot(dateStr, current));
 }
 
 function renderAppointmentStep3() {
@@ -2617,6 +2731,24 @@ async function submitAppointment() {
   // La modalidad es obligatoria: si faltara por algún flujo antiguo, usar la
   // presencial por defecto y avisar al usuario.
   if (!appointmentForm.modalidad) appointmentForm.modalidad = 'presencial';
+
+  // Compartir hora con otro paciente está permitido: solo se avisa (informativo).
+  // El único bloqueo es el duplicado exacto: mismo paciente + misma fecha +
+  // misma hora.
+  if (hasExactDuplicate({
+    fecha: appointmentForm.date,
+    hora: appointmentForm.time,
+    pacienteNombre: appointmentForm.pacienteNombre
+  })) {
+    showToast('⚠️ Este paciente ya tiene una cita en esa fecha y hora. Cambia la fecha o la hora (Paso 2) para continuar.', 'error');
+    renderAppointmentStep5(); // conservar los datos del formulario para corregir
+    return;
+  }
+
+  const sharedCount = countSlot(appointmentForm.date, appointmentForm.time);
+  if (sharedCount > 0) {
+    showToast(`⚠️ Ya existe${sharedCount > 1 ? `n ${sharedCount} citas` : ' otra cita'} a esta hora. Se guardará igualmente.`, 'warning');
+  }
 
   const appointment = {
     id: null, // el servidor asigna el id real

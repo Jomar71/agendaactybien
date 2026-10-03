@@ -1,5 +1,13 @@
 const Cita = require('../models/Cita');
 
+// Horarios compartidos: la app permite agendar varios pacientes en la misma
+// hora. Lo único que se rechaza es el DUPLICADO EXACTO (mismo paciente +
+// misma fecha + misma hora). Estas normalizaciones evitan falsos negativos
+// por diferencias de formato ('HH:MM' vs 'HH:MM:SS', espacios, mayúsculas).
+const toDate = (v) => String(v == null ? '' : v).slice(0, 10);
+const toTime = (v) => String(v == null ? '' : v).slice(0, 5);
+const toName = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+
 /**
  * Controlador de Citas (Mi Agenda).
  * Todas las respuestas se limitan al user_id del token (req.user.id).
@@ -51,6 +59,21 @@ const citaController = {
         return res.status(400).json({ message: `Campos obligatorios faltantes o inválidos: ${missing.join(', ')}` });
       }
 
+      // Solo se bloquea el duplicado exacto. Agendar un segundo paciente en la
+      // misma fecha y hora es válido y se guarda con normalidad.
+      const duplicate = await Cita.findExactDuplicate(
+        req.user.id,
+        toDate(req.body.fecha),
+        toTime(req.body.hora),
+        toName(req.body.pacienteNombre)
+      );
+      if (duplicate) {
+        return res.status(409).json({
+          message: 'Este paciente ya tiene una cita registrada en esa fecha y hora.',
+          code: 'CITA_DUPLICADA'
+        });
+      }
+
       const cita = await Cita.create(req.user.id, req.body);
       res.status(201).json(cita);
     } catch (error) {
@@ -63,6 +86,27 @@ const citaController = {
   update: async (req, res) => {
     try {
       const { id } = req.params;
+      const current = await Cita.findById(id, req.user.id);
+      if (!current) {
+        return res.status(404).json({ message: 'Cita no encontrada' });
+      }
+
+      // El duplicado exacto se comprueba contra el estado resultante (valores
+      // nuevos o, si no llegan, los actuales) excluyendo la propia cita, de
+      // modo que reagendar sin cambiar nada nunca se bloquee a sí mismo.
+      const nextDate = toDate(req.body.fecha || current.fecha);
+      const nextTime = toTime(req.body.hora || current.hora);
+      const nextName = toName(req.body.pacienteNombre || current.paciente_nombre);
+      const duplicate = await Cita.findExactDuplicate(
+        req.user.id, nextDate, nextTime, nextName, id
+      );
+      if (duplicate) {
+        return res.status(409).json({
+          message: 'Este paciente ya tiene una cita registrada en esa fecha y hora.',
+          code: 'CITA_DUPLICADA'
+        });
+      }
+
       const cita = await Cita.update(id, req.user.id, req.body);
       if (!cita) {
         return res.status(404).json({ message: 'Cita no encontrada' });

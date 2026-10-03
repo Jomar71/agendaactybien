@@ -34,6 +34,8 @@
   --success-bg:    #dcfce7;
   --warning:       #d97706;
   --warning-bg:    #fef3c7;
+  /* Tono oscuro para fondos con texto blanco (contraste AA) */
+  --warning-dark:  #92400e;
   --danger:        #dc2626;
   --danger-bg:     #fee2e2;
   --info:          #0284c7;
@@ -1065,6 +1067,71 @@ textarea {
   cursor: not-allowed;
 }
 
+/* Horario ya ocupado: sigue siendo seleccionable (varios pacientes pueden
+   compartir la misma hora). Solo se distingue visualmente y se avisa. */
+.time-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.time-btn.booked {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-dark);
+}
+
+.time-btn.booked:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-dark);
+}
+
+.time-btn.booked.selected {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: var(--white);
+}
+
+.slot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warning-dark);
+  color: var(--white);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.time-btn.selected .slot-badge {
+  background: var(--white);
+  color: var(--teal-darker);
+}
+
+.slot-warning {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border: 1px solid var(--warning);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning-dark);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.slot-warning[hidden] {
+  display: none;
+}
+
 /* =====================================================================
    11b. LAYOUT UNIFICADO FECHA & HORA
    ===================================================================== */
@@ -1828,6 +1895,7 @@ a.contact-item:hover { color: var(--teal); }
 .toast.success { background: var(--green); }
 .toast.error   { background: var(--danger); }
 .toast.info    { background: var(--teal); }
+.toast.warning { background: var(--warning-dark); }
 
 /* =====================================================================
    20. LOADER
@@ -2838,6 +2906,24 @@ a.contact-item:hover { color: var(--teal); }
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Indicador "N citas" en bloques horarios compartidos.
+   Doble clase para ganar a `.appt-manage-info span`, que también le aplica
+   color y tamaño al span anidado dentro del <strong>. */
+.appt-manage-info .appt-slot-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  color: var(--warning-dark);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* =====================================================================
