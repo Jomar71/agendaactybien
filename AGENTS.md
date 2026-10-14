@@ -33,7 +33,7 @@ Proyecto "Actitud & Bienestar" (agenda de citas psicológicas, tareas terapéuti
 - Terapeutas: bloqueados de `/api/tareas` y `/api/contactos` (`authorizeNotTerapeuta`); ven citas por `professional_id`, no por `user_id`. Admin ve por `user_id`.
 - Demo (seeds automáticos): `paola@terapia` / `pao1234567` (admin), `anabeli@terapia` / `anabeli1234567` (terapeuta).
 - CORS permite cualquier `localhost`/`127.0.0.1` en cualquier puerto, `*.pxxl.click`, `*.github.io`; demás vía `CORS_ORIGINS`.
-- **Cache-busting**: al cambiar la shell, subir `?v=X.Y.Z` en AMBOS `index.html` y renombrar `CACHE` en `sw.js` (hoy `?v=6.2.0` / `ayb-v6.2`).
+- **Cache-busting**: al cambiar la shell, subir `?v=X.Y.Z` en AMBOS `index.html` y renombrar `CACHE` en `sw.js` (hoy `?v=6.3.0` / `ayb-v6.3`).
 - Frontend llama al API por `window.API_BASE_URL` > host `pxxl.click` > `http://localhost:4000`.
 - Commits en español, a menudo con prefijos `feat:` / `fix:` / `chore:`.
 

@@ -2421,11 +2421,11 @@ function renderAppointmentStep3() {
             <div class="form-error" id="err-telefono" role="alert" aria-live="polite"></div>
           </div>
           <div class="form-group">
-            <label for="f-email">Correo electrónico <span style="color:var(--danger)">*</span></label>
+            <label for="f-email">Correo electrónico <span style="color:var(--text-muted);font-weight:400">(opcional)</span></label>
             <input type="email" id="f-email" name="email"
                    placeholder="tutor@correo.com"
                    value="${escapeHtml(appointmentForm.email)}"
-                   aria-required="true" autocomplete="email">
+                   autocomplete="email">
             <div class="form-error" id="err-email" role="alert" aria-live="polite"></div>
           </div>
         </div>
@@ -2543,7 +2543,7 @@ function renderAppointmentStep3() {
 
     if (!f.tutorNombre.trim()) { showError(inputs.tutorNombre, 'err-tutor-nombre', 'Ingresa el nombre del tutor.'); valid = false; }
     if (!f.telefono.trim() || !isValidPhone(f.telefono)) { showError(inputs.telefono, 'err-telefono', 'Ingresa un teléfono válido (7-15 dígitos).'); valid = false; }
-    if (!f.email.trim() || !isValidEmail(f.email)) { showError(inputs.email, 'err-email', 'Ingresa un correo electrónico válido.'); valid = false; }
+    if (f.email.trim() && !isValidEmail(f.email)) { showError(inputs.email, 'err-email', 'Ingresa un correo electrónico válido o déjalo vacío.'); valid = false; }
     if (!f.pacienteNombre.trim()) { showError(inputs.pacienteNombre, 'err-paciente-nombre', 'Ingresa el nombre del paciente.'); valid = false; }
     if (!f.pacienteEdad || parseInt(f.pacienteEdad) < 2 || parseInt(f.pacienteEdad) > 120) {
       showError(inputs.pacienteEdad, 'err-paciente-edad', 'Ingresa una edad entre 2 y 120 años.');
@@ -2675,7 +2675,7 @@ function renderAppointmentStep5() {
         </div>
         <div class="review-row" role="listitem">
           <span class="review-label">👨‍👩‍👦 Tutor y contacto</span>
-          <span class="review-value">${escapeHtml(appointmentForm.tutorNombre)} · ${escapeHtml(appointmentForm.telefono)} · ${escapeHtml(appointmentForm.email)}</span>
+          <span class="review-value">${escapeHtml(appointmentForm.tutorNombre)} · ${escapeHtml(appointmentForm.telefono)}${appointmentForm.email.trim() ? ' · ' + escapeHtml(appointmentForm.email) : ''}</span>
           <button type="button" class="btn-link-edit" data-goto="3">✏️ Editar</button>
         </div>
         <div class="review-row" role="listitem">
@@ -3864,7 +3864,7 @@ async function renderHistory(el) {
             <div><strong>Paciente:</strong> ${escapeHtml(a.pacienteNombre)} (${a.pacienteEdad} años)</div>
             <div><strong>Tutor:</strong> ${escapeHtml(a.tutorNombre)}</div>
             <div><strong>Teléfono:</strong> <a href="tel:${escapeHtml(a.telefono)}" style="color:var(--teal)">${escapeHtml(a.telefono)}</a></div>
-            <div><strong>Correo:</strong> <a href="mailto:${escapeHtml(a.email)}" style="color:var(--teal)">${escapeHtml(a.email)}</a></div>
+            ${a.email ? `<div><strong>Correo:</strong> <a href="mailto:${escapeHtml(a.email)}" style="color:var(--teal)">${escapeHtml(a.email)}</a></div>` : ''}
             <div><strong>Motivo Principal:</strong> ${escapeHtml(a.motivo)}</div>
             ${a.motivoDetalle ? `<div><strong>Descripción Detallada:</strong><br><span style="color:var(--gray)">${escapeHtml(a.motivoDetalle)}</span></div>` : ''}
             <div><strong>Estado Actual:</strong> <span class="badge badge-${escapeHtml(a.estado)}">${escapeHtml(a.estado)}</span></div>

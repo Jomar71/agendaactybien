@@ -55,3 +55,4 @@
 - El proyecto evolucionó de una app 100% estática a una SPA con backend Express.
 - Se adoptó el adaptador dual MySQL/PostgreSQL para funcionar local y en producción sin cambiar los modelos.
 - Se mantienen dos shells HTML por compatibilidad con el manifest, el service worker y la versión en `frontend/`.
+- El correo electrónico al agendar una cita es OPCIONAL: solo se valida el formato si el usuario escribe algo (frontend). El backend nunca lo exigió.
